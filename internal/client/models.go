@@ -1,6 +1,6 @@
 package client
 
-import "time"
+// models.go contains all Go structs mirroring the Kaizen API request/response types.
 
 // ---------------------------------------------------------------------------
 // Common models
@@ -68,8 +68,8 @@ type Board struct {
 	Color       *string      `json:"color"`
 	Icon        *string      `json:"icon"`
 	ChildBoards []ChildBoard `json:"childBoards"`
-	CreatedAt   time.Time    `json:"createdAt"`
-	UpdatedAt   time.Time    `json:"updatedAt"`
+	CreatedAt   string    `json:"createdAt"`
+	UpdatedAt   string    `json:"updatedAt"`
 }
 
 // ChildBoard is a lightweight board reference used in parent board listings.
@@ -145,7 +145,7 @@ type Ticket struct {
 	Percentage     int               `json:"percentage"`
 	Weight         *int              `json:"weight"`
 	DueDate        *string           `json:"dueDate"`
-	CreatedAt      time.Time         `json:"createdAt"`
+	CreatedAt      string         `json:"createdAt"`
 	CreatedBy      TicketPersonRef   `json:"createdBy"`
 	Assignees      []TicketPersonRef `json:"assignees"`
 	Reviewers      []TicketPersonRef `json:"reviewers"`
@@ -256,8 +256,8 @@ type Sprint struct {
 	StartDate   *string   `json:"startDate"`
 	EndDate     *string   `json:"endDate"`
 	BoardID     string    `json:"boardId"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
 }
 
 // SprintCreateRequest is the payload for creating a sprint.
@@ -351,7 +351,7 @@ type BoardMember struct {
 	FirstName string    `json:"firstName"`
 	LastName  string    `json:"lastName"`
 	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt string `json:"createdAt"`
 }
 
 // MemberAddRequest is the payload for adding a member to a board.
@@ -378,8 +378,8 @@ type Comment struct {
 	AuthorEmail     string    `json:"authorEmail"`
 	AuthorFirstName string    `json:"authorFirstName"`
 	AuthorLastName  string    `json:"authorLastName"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
 }
 
 // CommentCreateRequest is the payload for creating a comment.

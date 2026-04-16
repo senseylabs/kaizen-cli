@@ -171,7 +171,7 @@ func runSprintGet(cmd *cobra.Command, args []string) error {
 	if s.EndDate != nil {
 		fmt.Printf("End Date:    %s\n", *s.EndDate)
 	}
-	fmt.Printf("Created:     %s\n", s.CreatedAt.Format("2006-01-02 15:04"))
+	fmt.Printf("Created:     %s\n", s.CreatedAt)
 
 	return nil
 }

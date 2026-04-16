@@ -76,7 +76,7 @@ func runCommentList(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			comment.ID,
 			author,
-			comment.CreatedAt.Format("2006-01-02 15:04"),
+			comment.CreatedAt,
 			content,
 		)
 	}

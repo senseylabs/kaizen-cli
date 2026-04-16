@@ -174,7 +174,7 @@ func (c *KaizenClient) tryRefreshToken() error {
 		return fmt.Errorf("no issuer URL in stored credentials")
 	}
 
-	tokenResp, err := auth.RefreshToken(issuer, "village-app", creds.RefreshToken)
+	tokenResp, err := auth.RefreshToken(issuer, creds.ClientID, creds.ClientSecret, creds.RefreshToken)
 	if err != nil {
 		return err
 	}
