@@ -1,0 +1,41 @@
+version: 2
+
+project_name: kaizen-cli
+
+builds:
+  - main: .
+    binary: kaizen
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: linux
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+brews:
+  - repository:
+      owner: senseylabs
+      name: homebrew-tap
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/senseylabs/kaizen-cli"
+    description: "CLI tool for Kaizen board management"
+    license: "MIT"
+    install: |
+      bin.install "kaizen"
+    test: |
+      system "#{bin}/kaizen", "--version"
+
+changelog:
+  sort: asc
