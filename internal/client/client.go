@@ -19,18 +19,20 @@ type TokenFunc func() (string, error)
 
 // KaizenClient handles HTTP communication with the Kaizen API.
 type KaizenClient struct {
-	BaseURL    string
-	OrgID      string
-	httpClient *http.Client
-	tokenFunc  TokenFunc
-	debug      bool
+	BaseURL      string
+	OrgID        string
+	httpClient   *http.Client
+	tokenFunc    TokenFunc
+	clientSecret string
+	debug        bool
 }
 
 // NewKaizenClient creates a new client with a token resolver function.
-func NewKaizenClient(baseURL, orgID string, tokenFunc TokenFunc, debug bool) *KaizenClient {
+func NewKaizenClient(baseURL, orgID, clientSecret string, tokenFunc TokenFunc, debug bool) *KaizenClient {
 	return &KaizenClient{
-		BaseURL: baseURL,
-		OrgID:   orgID,
+		BaseURL:      baseURL,
+		OrgID:        orgID,
+		clientSecret: clientSecret,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -120,7 +122,7 @@ func (c *KaizenClient) doRequestWithRetry(method, path string, payload interface
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response from %s: %w", url, err)
 	}
@@ -174,7 +176,7 @@ func (c *KaizenClient) tryRefreshToken() error {
 		return fmt.Errorf("no issuer URL in stored credentials")
 	}
 
-	tokenResp, err := auth.RefreshToken(issuer, creds.ClientID, creds.ClientSecret, creds.RefreshToken)
+	tokenResp, err := auth.RefreshToken(issuer, creds.ClientID, c.clientSecret, creds.RefreshToken)
 	if err != nil {
 		return err
 	}
@@ -188,19 +190,44 @@ func (c *KaizenClient) tryRefreshToken() error {
 	return store.Save(creds)
 }
 
+// NotFoundError indicates the requested resource was not found (HTTP 404).
+type NotFoundError struct {
+	Message string
+}
+
+func (e *NotFoundError) Error() string {
+	return e.Message
+}
+
+// ForbiddenError indicates access was denied (HTTP 403).
+type ForbiddenError struct {
+	Message string
+}
+
+func (e *ForbiddenError) Error() string {
+	return e.Message
+}
+
 func (c *KaizenClient) parseError(statusCode int, body []byte) error {
 	var apiErr APIError
 	if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
-		return &apiErr
+		switch statusCode {
+		case http.StatusNotFound:
+			return &NotFoundError{Message: apiErr.Message}
+		case http.StatusForbidden:
+			return &ForbiddenError{Message: apiErr.Message}
+		default:
+			return &apiErr
+		}
 	}
 
 	switch statusCode {
 	case http.StatusUnauthorized:
 		return fmt.Errorf("unauthorized. Run 'kaizen login' to authenticate")
 	case http.StatusForbidden:
-		return fmt.Errorf("access denied. You may not have permission for this operation")
+		return &ForbiddenError{Message: "access denied. You may not have permission for this operation"}
 	case http.StatusNotFound:
-		return fmt.Errorf("resource not found")
+		return &NotFoundError{Message: "resource not found"}
 	case http.StatusInternalServerError:
 		return fmt.Errorf("server error. Try again later")
 	default:

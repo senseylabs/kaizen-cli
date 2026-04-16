@@ -62,11 +62,11 @@ func init() {
 
 	projectCreateCmd.Flags().String("name", "", "Project name (required)")
 	projectCreateCmd.Flags().String("description", "", "Project description")
-	projectCreateCmd.Flags().String("prefix", "", "Project prefix")
+	projectCreateCmd.Flags().String("color", "", "Project color")
 
 	projectUpdateCmd.Flags().String("name", "", "Project name")
 	projectUpdateCmd.Flags().String("description", "", "Project description")
-	projectUpdateCmd.Flags().String("prefix", "", "Project prefix")
+	projectUpdateCmd.Flags().String("color", "", "Project color")
 }
 
 func runProjectList(cmd *cobra.Command, args []string) error {
@@ -74,7 +74,7 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := resolveBoard(cmd, args, c)
 	if err != nil {
@@ -116,7 +116,7 @@ func runProjectGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -155,7 +155,7 @@ func runProjectCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := resolveBoard(cmd, args, c)
 	if err != nil {
@@ -171,8 +171,8 @@ func runProjectCreate(cmd *cobra.Command, args []string) error {
 		Name: name,
 	}
 
-	if cmd.Flags().Changed("prefix") {
-		color, _ := cmd.Flags().GetString("prefix")
+	if cmd.Flags().Changed("color") {
+		color, _ := cmd.Flags().GetString("color")
 		payload.Color = &color
 	}
 
@@ -200,7 +200,7 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -214,8 +214,8 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 		v, _ := cmd.Flags().GetString("name")
 		payload.Name = &v
 	}
-	if cmd.Flags().Changed("prefix") {
-		v, _ := cmd.Flags().GetString("prefix")
+	if cmd.Flags().Changed("color") {
+		v, _ := cmd.Flags().GetString("color")
 		payload.Color = &v
 	}
 
@@ -238,7 +238,7 @@ func runProjectDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {

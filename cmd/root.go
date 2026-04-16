@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/senseylabs/kaizen-cli/internal/auth"
+	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/senseylabs/kaizen-cli/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -48,6 +50,13 @@ var rootCmd = &cobra.Command{
 // Execute runs the root command.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		var notFound *client.NotFoundError
+		var forbidden *client.ForbiddenError
+		if errors.As(err, &notFound) {
+			os.Exit(2)
+		} else if errors.As(err, &forbidden) {
+			os.Exit(3)
+		}
 		os.Exit(1)
 	}
 }
@@ -58,7 +67,6 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgAPIURL, "api-url", "", "Kaizen API base URL")
 	rootCmd.PersistentFlags().StringVar(&cfgIssuer, "issuer", "", "Keycloak issuer URL")
 	rootCmd.PersistentFlags().StringVar(&cfgClientID, "client-id", "", "Keycloak client ID")
-	rootCmd.PersistentFlags().StringVar(&cfgClientSecret, "client-secret", "", "Keycloak client secret")
 	rootCmd.PersistentFlags().StringVar(&cfgOrgID, "org", "", "Organization ID")
 	rootCmd.PersistentFlags().StringVar(&cfgDefaultBoard, "board", "", "Default board name or ID")
 	rootCmd.PersistentFlags().BoolVar(&cfgDevMode, "dev", false, "Use local development URLs (localhost)")

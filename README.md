@@ -84,7 +84,7 @@ Prompts for username and password, performs a Keycloak password grant, and cache
 | Variable | Description |
 |----------|-------------|
 | `KAIZEN_TOKEN` | Pre-obtained access token — used directly, no login needed |
-| `KAIZEN_USERNAME` + `KAIZEN_PASSWORD` | Auto-performs password grant at startup |
+| `KAIZEN_USERNAME` + `KAIZEN_PASSWORD` | Used by `kaizen login` for non-interactive authentication (still requires running `kaizen login`) |
 
 `KAIZEN_TOKEN` takes precedence over username/password. Neither credentials nor tokens are ever printed in output.
 
@@ -114,6 +114,7 @@ Clears stored tokens and local cache.
 | `kaizen board get <board>` | Get board details by name or ID |
 | `kaizen board create --name <> --key <>` | Create a new board |
 | `kaizen board update <board> [--name] [--key] [--description]` | Update a board |
+| `kaizen board delete <board>` | Delete a board |
 | `kaizen board set-default <board>` | Set default board in config |
 | `kaizen board related <board>` | List related boards |
 | `kaizen board children add <board> --child-ids <ids>` | Add child boards |
@@ -125,12 +126,13 @@ Board names are **case-insensitive** and resolved to UUIDs automatically via cac
 
 | Command | Description |
 |---------|-------------|
-| `kaizen ticket list [--board] [--status] [--assignee] [--label] [--search] [--sprint] [--backlog]` | List board tickets with filters |
-| `kaizen ticket all [--status] [--assignee] [--search]` | List tickets across all boards |
-| `kaizen ticket mine [--status] [--search]` | List tickets assigned to you |
+| `kaizen ticket list [--board] [--status] [--assignee] [--label] [--search] [--sprint] [--backlog] [--page] [--amount] [--sort-by] [--sort-dir]` | List board tickets with filters |
+| `kaizen ticket all [--status] [--assignee] [--search] [--page] [--amount]` | List tickets across all boards |
+| `kaizen ticket mine [--status] [--search] [--page] [--amount]` | List tickets assigned to you |
 | `kaizen ticket get <board> <ticketId>` | Get a single ticket |
 | `kaizen ticket create --title <> --type <> --priority <> --status <> [--board] [--description] [--assignee] [--label] [--project] [--sprint] [--backlog] [--story-points] [--due-date]` | Create a ticket |
-| `kaizen ticket update <board> <ticketId> [--title] [--status] [--priority] [--assignee] [--label] [--story-points] [--due-date] [--percentage]` | Update ticket fields |
+| `kaizen ticket update <board> <ticketId> [--title] [--status] [--priority] [--type] [--assignee] [--label] [--story-points] [--due-date] [--percentage] [--sprint] [--backlog] [--project] [--description]` | Update ticket fields |
+| `kaizen ticket delete <board> <ticketId>` | Delete a ticket |
 | `kaizen ticket move <board> <ticketId> [--target-board] [--target-sprint] [--target-backlog]` | Move a ticket |
 | `kaizen ticket bulk-move <board> --tickets <ids> [--target-sprint] [--target-backlog]` | Move multiple tickets |
 | `kaizen ticket order <board> <ticketId> --order <n> [--sprint] [--backlog]` | Reorder a ticket |
@@ -154,6 +156,7 @@ If neither `--sprint` nor `--backlog` is specified on create, the ticket is plac
 | `kaizen sprint get <board> <sprintId>` | Get sprint details |
 | `kaizen sprint create <board> --name <> [--description] [--start-date] [--end-date]` | Create a sprint |
 | `kaizen sprint update <board> <sprintId> [--name] [--description] [--start-date] [--end-date]` | Update a sprint |
+| `kaizen sprint delete <board> <sprintId>` | Delete a sprint |
 | `kaizen sprint start <board> <sprintId>` | Start a sprint |
 | `kaizen sprint complete <board> <sprintId>` | Complete a sprint |
 | `kaizen sprint link <board> <sprintId> --tickets <ids>` | Link tickets to a sprint |
@@ -176,6 +179,7 @@ Dates use `YYYY-MM-DD` format.
 | `kaizen label list [board] [--refresh]` | List labels (cached 30 min) |
 | `kaizen label create [board] --name <> [--color <>]` | Create a label |
 | `kaizen label update <board> <labelId> [--name] [--color]` | Update a label |
+| `kaizen label delete <board> <labelId>` | Delete a label |
 
 ### Projects
 
@@ -183,8 +187,9 @@ Dates use `YYYY-MM-DD` format.
 |---------|-------------|
 | `kaizen project list [board]` | List projects |
 | `kaizen project get <board> <projectId>` | Get project details |
-| `kaizen project create [board] --name <> [--description] [--prefix]` | Create a project |
-| `kaizen project update <board> <projectId> [--name] [--description] [--prefix]` | Update a project |
+| `kaizen project create [board] --name <> [--description] [--color]` | Create a project |
+| `kaizen project update <board> <projectId> [--name] [--description] [--color]` | Update a project |
+| `kaizen project delete <board> <projectId>` | Delete a project |
 
 ### Members
 
@@ -203,6 +208,7 @@ Dates use `YYYY-MM-DD` format.
 | `kaizen comment list <board> <ticketId>` | List comments on a ticket |
 | `kaizen comment add <board> <ticketId> --content <>` | Add a comment |
 | `kaizen comment update <board> <ticketId> <commentId> --content <>` | Update a comment |
+| `kaizen comment delete <board> <ticketId> <commentId>` | Delete a comment |
 
 ### Cache
 
@@ -229,8 +235,24 @@ Resolved in this order (highest priority first):
 # ~/.kaizen/config.yaml
 api-url: https://api.village.sensey.io
 issuer: https://keycloak.sensey.io/realms/sensey
+client-id: village-app
+client-secret: your-client-secret
 default-board: Sensey
 ```
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `KAIZEN_API_URL` | Kaizen API base URL |
+| `KAIZEN_KEYCLOAK_ISSUER` | Keycloak issuer URL |
+| `KAIZEN_CLIENT_ID` | Keycloak client ID |
+| `KAIZEN_CLIENT_SECRET` | Keycloak client secret (preferred way to provide secrets) |
+| `KAIZEN_ORG_ID` | Organization ID |
+| `KAIZEN_DEFAULT_BOARD` | Default board name |
+| `KAIZEN_TOKEN` | Pre-obtained access token (skips login) |
+| `KAIZEN_USERNAME` | Username for non-interactive `kaizen login` |
+| `KAIZEN_PASSWORD` | Password for non-interactive `kaizen login` |
 
 ### Global flags
 
@@ -238,11 +260,14 @@ default-board: Sensey
 |------|---------|---------|
 | `--api-url` | `KAIZEN_API_URL` | `https://api.village.sensey.io` |
 | `--issuer` | `KAIZEN_KEYCLOAK_ISSUER` | `https://keycloak.sensey.io/realms/sensey` |
+| `--client-id` | `KAIZEN_CLIENT_ID` | `village-app` |
 | `--org` | `KAIZEN_ORG_ID` | (from login) |
 | `--board` | `KAIZEN_DEFAULT_BOARD` | (from config) |
 | `--json` | — | Output raw JSON |
 | `--dev` | — | Use localhost URLs |
 | `--debug` | — | Log HTTP requests (tokens redacted) |
+
+`KAIZEN_CLIENT_SECRET` is configured via environment variable or config file only — there is no CLI flag for it.
 
 ### Dev mode
 
@@ -257,17 +282,20 @@ Dev mode defaults: API `http://localhost:8080`, Keycloak `http://localhost:8086/
 
 ## JSON Output
 
-Pass `--json` to any command for machine-readable output:
+Pass `--json` to any command for machine-readable output. Most commands output the raw API envelope (`{"data": ...}`):
 
 ```bash
 # Get ticket as JSON
 kaizen ticket get Sensey <ticketId> --json
 
-# Pipe to jq
-kaizen ticket mine --status TODO --json | jq '.[].key'
+# Pipe to jq — note the {"data": ...} wrapper
+kaizen ticket list --json | jq '.data.content[].key'
+
+# Get a single ticket field
+kaizen ticket get Sensey <ticketId> --json | jq '.data.title'
 
 # Use in scripts
-TICKET_ID=$(kaizen ticket create --title "Test" --type TASK --priority LOW --status TODO --json | jq -r '.id')
+TICKET_ID=$(kaizen ticket create --title "Test" --type TASK --priority LOW --status TODO --json | jq -r '.data.id')
 ```
 
 ### Exit codes
@@ -286,14 +314,20 @@ The CLI caches metadata to `~/.kaizen/cache.json` to minimize API calls:
 | Resource | TTL | Cache key |
 |----------|-----|-----------|
 | Boards | 30 min | `boards` |
-| Backlogs | 60 min | `backlog:{boardId}` |
 | Members | 15 min | `members:{boardId}` |
 | Labels | 30 min | `labels:{boardId}` |
 | Sprints | 15 min | `sprints:{boardId}` |
 
-Tickets are **never cached** — always fetched live.
+Tickets and backlogs are **never cached** — always fetched live.
 
 Board names (e.g., "Sensey") are resolved to UUIDs via the board cache, so you rarely need to type a UUID.
+
+## Security
+
+- **Token storage**: Tokens are stored in the macOS Keychain, or `~/.kaizen/credentials` with `0600` permissions on Linux.
+- **No password storage**: Passwords are never stored — only access and refresh tokens are persisted.
+- **Client secrets**: Provide client secrets via the `KAIZEN_CLIENT_SECRET` environment variable or config file, never as a CLI flag.
+- **Debug mode**: Authorization headers are redacted in `--debug` output.
 
 ## Examples
 

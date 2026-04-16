@@ -10,18 +10,28 @@ import (
 )
 
 type fileStore struct {
-	path string
+	path    string
+	homeErr error
 }
 
 // NewCredentialStore returns a file-based credential store for non-macOS systems.
 func NewCredentialStore() CredentialStore {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return &fileStore{
+			path:    "",
+			homeErr: fmt.Errorf("failed to determine home directory: %w", err),
+		}
+	}
 	return &fileStore{
 		path: filepath.Join(home, ".kaizen", "credentials"),
 	}
 }
 
 func (f *fileStore) Save(creds Credentials) error {
+	if f.homeErr != nil {
+		return f.homeErr
+	}
 	dir := filepath.Dir(f.path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create credentials directory: %w", err)
@@ -39,6 +49,9 @@ func (f *fileStore) Save(creds Credentials) error {
 }
 
 func (f *fileStore) Load() (Credentials, error) {
+	if f.homeErr != nil {
+		return Credentials{}, f.homeErr
+	}
 	data, err := os.ReadFile(f.path)
 	if err != nil {
 		return Credentials{}, fmt.Errorf("no credentials found at %s: %w", f.path, err)
@@ -52,6 +65,9 @@ func (f *fileStore) Load() (Credentials, error) {
 }
 
 func (f *fileStore) Delete() error {
+	if f.homeErr != nil {
+		return f.homeErr
+	}
 	if err := os.Remove(f.path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to delete credentials: %w", err)
 	}

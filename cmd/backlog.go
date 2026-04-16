@@ -38,25 +38,13 @@ func init() {
 }
 
 func resolveBoard(cmd *cobra.Command, args []string, c *client.KaizenClient) (string, error) {
-	// Check --board persistent flag first
-	if cfgDefaultBoard != "" {
-		return cache.ResolveBoard(cfgDefaultBoard, c)
-	}
-	// Then check positional arg
-	if len(args) > 0 {
+	if len(args) > 0 && args[0] != "" {
 		return cache.ResolveBoard(args[0], c)
 	}
-	return "", fmt.Errorf("no board specified. Use --board flag, set a default with 'kaizen board set-default', or pass as argument")
-}
-
-func resolveBoardWithArg(args []string, argIndex int, c *client.KaizenClient) (string, error) {
-	if argIndex < len(args) {
-		return cache.ResolveBoard(args[argIndex], c)
-	}
 	if cfgDefaultBoard != "" {
 		return cache.ResolveBoard(cfgDefaultBoard, c)
 	}
-	return "", fmt.Errorf("no board specified. Use --board flag, set a default with 'kaizen board set-default', or pass as argument")
+	return "", fmt.Errorf("board is required. Use a positional argument or set a default board")
 }
 
 func runBacklogGet(cmd *cobra.Command, args []string) error {
@@ -64,7 +52,7 @@ func runBacklogGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := resolveBoard(cmd, args, c)
 	if err != nil {
@@ -108,7 +96,7 @@ func runBacklogAddTicket(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
