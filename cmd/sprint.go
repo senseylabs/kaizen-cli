@@ -39,7 +39,7 @@ func runSprintList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardName := cfgDefaultBoard
 	if len(args) > 0 {
@@ -81,6 +81,7 @@ func runSprintList(cmd *cobra.Command, args []string) error {
 
 	if cfgJSON {
 		fmt.Println(string(body))
+		return nil
 	}
 
 	var resp client.APIResponse[[]client.Sprint]
@@ -137,7 +138,7 @@ func runSprintGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -192,7 +193,7 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -252,7 +253,7 @@ func runSprintUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -326,7 +327,7 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -362,7 +363,7 @@ func runSprintComplete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -398,7 +399,7 @@ func runSprintLink(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -440,7 +441,7 @@ func runSprintUnlink(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -482,7 +483,7 @@ func runSprintDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -518,7 +519,7 @@ func runSprintRestore(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {

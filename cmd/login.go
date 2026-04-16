@@ -104,7 +104,6 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
 		IssuerURL:    cfgIssuer,
 		ClientID:     cfgClientID,
-		ClientSecret: cfgClientSecret,
 		APIURL:       cfgAPIURL,
 		OrgID:        orgID,
 		UserID:       user.ID,

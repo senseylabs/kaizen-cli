@@ -77,7 +77,7 @@ func runMemberList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := resolveBoard(cmd, args, c)
 	if err != nil {
@@ -139,7 +139,7 @@ func runMemberAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := resolveBoard(cmd, args, c)
 	if err != nil {
@@ -179,7 +179,7 @@ func runMemberRemove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -204,7 +204,7 @@ func runMemberUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -243,7 +243,7 @@ func runMemberSpecialties(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {

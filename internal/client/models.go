@@ -229,20 +229,6 @@ type TicketOrderRequest struct {
 	BacklogID *string `json:"backlogId,omitempty"`
 }
 
-// TicketQueryParams holds the query parameters for listing tickets.
-type TicketQueryParams struct {
-	Status        *string  `json:"status,omitempty"`
-	AssigneeIDs   []string `json:"assigneeIds,omitempty"`
-	LabelIDs      []string `json:"labelIds,omitempty"`
-	Search        *string  `json:"search,omitempty"`
-	SprintID      *string  `json:"sprintId,omitempty"`
-	BacklogID     *string  `json:"backlogId,omitempty"`
-	Page          int      `json:"page"`
-	Amount        int      `json:"amount"`
-	SortBy        *string  `json:"sortBy,omitempty"`
-	SortDirection *string  `json:"sortDirection,omitempty"`
-}
-
 // ---------------------------------------------------------------------------
 // Sprint models
 // ---------------------------------------------------------------------------
