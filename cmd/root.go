@@ -11,16 +11,20 @@ import (
 )
 
 const (
-	prodAPIURL = "https://api.village.sensey.io"
-	prodIssuer = "https://keycloak.sensey.io/realms/sensey"
-	devAPIURL  = "http://localhost:8080"
-	devIssuer  = "http://localhost:8086/realms/sensey"
-	clientID   = "village-app"
+	prodAPIURL       = "https://api.village.sensey.io"
+	prodIssuer       = "https://keycloak.sensey.io/realms/sensey"
+	prodClientID     = "village-app"
+	devAPIURL        = "http://localhost:8080"
+	devIssuer        = "http://localhost:8086/realms/sensey"
+	devClientID      = "village-jwt-test-client"
+	devClientSecret  = "jwt-test-secret-12345"
 )
 
 var (
 	cfgAPIURL       string
 	cfgIssuer       string
+	cfgClientID     string
+	cfgClientSecret string
 	cfgOrgID        string
 	cfgDefaultBoard string
 	cfgDevMode      bool
@@ -53,6 +57,8 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgAPIURL, "api-url", "", "Kaizen API base URL")
 	rootCmd.PersistentFlags().StringVar(&cfgIssuer, "issuer", "", "Keycloak issuer URL")
+	rootCmd.PersistentFlags().StringVar(&cfgClientID, "client-id", "", "Keycloak client ID")
+	rootCmd.PersistentFlags().StringVar(&cfgClientSecret, "client-secret", "", "Keycloak client secret")
 	rootCmd.PersistentFlags().StringVar(&cfgOrgID, "org", "", "Organization ID")
 	rootCmd.PersistentFlags().StringVar(&cfgDefaultBoard, "board", "", "Default board name or ID")
 	rootCmd.PersistentFlags().BoolVar(&cfgDevMode, "dev", false, "Use local development URLs (localhost)")
@@ -79,14 +85,23 @@ func initConfig() {
 		cfgDevMode = true
 	}
 
-	// Resolve API URL: flag → env var → config file → stored creds → production default
-	if cfgDevMode && cfgAPIURL == "" {
-		cfgAPIURL = devAPIURL
-	}
-	if cfgDevMode && cfgIssuer == "" {
-		cfgIssuer = devIssuer
+	// Dev mode defaults
+	if cfgDevMode {
+		if cfgAPIURL == "" {
+			cfgAPIURL = devAPIURL
+		}
+		if cfgIssuer == "" {
+			cfgIssuer = devIssuer
+		}
+		if cfgClientID == "" {
+			cfgClientID = devClientID
+		}
+		if cfgClientSecret == "" {
+			cfgClientSecret = devClientSecret
+		}
 	}
 
+	// Resolve API URL: flag → env var → config file → stored creds → production default
 	if cfgAPIURL == "" {
 		if cfg.APIURL != "" {
 			cfgAPIURL = cfg.APIURL
@@ -104,6 +119,20 @@ func initConfig() {
 			cfgIssuer = storedCreds.IssuerURL
 		} else {
 			cfgIssuer = prodIssuer
+		}
+	}
+
+	if cfgClientID == "" {
+		if cfg.ClientID != "" {
+			cfgClientID = cfg.ClientID
+		} else {
+			cfgClientID = prodClientID
+		}
+	}
+
+	if cfgClientSecret == "" {
+		if cfg.ClientSecret != "" {
+			cfgClientSecret = cfg.ClientSecret
 		}
 	}
 

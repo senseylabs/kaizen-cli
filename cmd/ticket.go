@@ -372,7 +372,7 @@ func runTicketGet(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Printf("Labels:   %s\n", strings.Join(names, ", "))
 	}
-	fmt.Printf("Created:  %s\n", t.CreatedAt.Format("2006-01-02 15:04"))
+	fmt.Printf("Created:  %s\n", t.CreatedAt)
 	fmt.Printf("Created By: %s %s\n", t.CreatedBy.FirstName, t.CreatedBy.LastName)
 
 	return nil
@@ -450,7 +450,10 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 	// Auto-resolve backlog if neither sprint nor backlog specified
 	if req.SprintID == nil && req.BacklogID == nil {
 		backlogID, resolveErr := resolveBacklog(boardID, c)
-		if resolveErr == nil && backlogID != "" {
+		if resolveErr != nil {
+			return fmt.Errorf("failed to auto-resolve backlog for board: %w. Use --backlog or --sprint explicitly", resolveErr)
+		}
+		if backlogID != "" {
 			req.BacklogID = &backlogID
 		}
 	}

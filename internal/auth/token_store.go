@@ -8,6 +8,8 @@ type Credentials struct {
 	RefreshToken string    `json:"refresh_token"`
 	ExpiresAt    time.Time `json:"expires_at"`
 	IssuerURL    string    `json:"issuer_url"`
+	ClientID     string    `json:"client_id,omitempty"`
+	ClientSecret string    `json:"client_secret,omitempty"`
 	APIURL       string    `json:"api_url,omitempty"`
 	OrgID        string    `json:"org_id,omitempty"`
 	UserID       string    `json:"user_id,omitempty"`

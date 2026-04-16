@@ -60,7 +60,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Perform password grant
 	fmt.Println("Authenticating...")
-	tokenResp, err := auth.PasswordGrant(cfgIssuer, clientID, username, password)
+	tokenResp, err := auth.PasswordGrant(cfgIssuer, cfgClientID, cfgClientSecret, username, password)
 	if err != nil {
 		return fmt.Errorf("login failed: %w", err)
 	}
@@ -103,6 +103,8 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		RefreshToken: tokenResp.RefreshToken,
 		ExpiresAt:    time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
 		IssuerURL:    cfgIssuer,
+		ClientID:     cfgClientID,
+		ClientSecret: cfgClientSecret,
 		APIURL:       cfgAPIURL,
 		OrgID:        orgID,
 		UserID:       user.ID,
