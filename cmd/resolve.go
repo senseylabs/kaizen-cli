@@ -142,16 +142,18 @@ func sprintStatusOrder(status string) int {
 	}
 }
 
-// formatSprintDate converts a date string like "2025-06-15" to "Jun 15".
+// formatSprintDate converts a date string to "Jun 15" format.
+// Handles ISO 8601 timestamps (e.g. "2026-04-05T21:00:00Z") and plain dates ("2025-06-15").
 func formatSprintDate(dateStr *string) string {
 	if dateStr == nil {
 		return "\u2014"
 	}
-	t, err := time.Parse("2006-01-02", *dateStr)
-	if err != nil {
-		return *dateStr
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05Z", "2006-01-02"} {
+		if t, err := time.Parse(layout, *dateStr); err == nil {
+			return t.Format("Jan 02")
+		}
 	}
-	return t.Format("Jan 02")
+	return *dateStr
 }
 
 // statusColor returns the ANSI color code for a sprint status.
@@ -268,12 +270,12 @@ func resolveTicketByKey(boardID string, key string, c *client.KaizenClient) (str
 		return "", fmt.Errorf("failed to search for ticket %q: %w", key, err)
 	}
 
-	var resp client.APIResponse[client.PaginatedResponse[client.Ticket]]
+	var resp client.APIResponse[[]client.Ticket]
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("failed to parse ticket search response: %w", err)
 	}
 
-	for _, t := range resp.Data.Content {
+	for _, t := range resp.Data {
 		if strings.EqualFold(t.Key, key) {
 			return t.ID, nil
 		}
@@ -396,12 +398,12 @@ func browseAndSelectTicket(boardID string, c *client.KaizenClient) (string, stri
 			return "", "", fmt.Errorf("failed to fetch tickets: %w", fetchErr)
 		}
 
-		var resp client.APIResponse[client.PaginatedResponse[client.Ticket]]
+		var resp client.APIResponse[[]client.Ticket]
 		if parseErr := json.Unmarshal(body, &resp); parseErr != nil {
 			return "", "", fmt.Errorf("failed to parse tickets: %w", parseErr)
 		}
 
-		if len(resp.Data.Content) == 0 {
+		if len(resp.Data) == 0 {
 			return "", "", fmt.Errorf("no tickets found in %s", header)
 		}
 
@@ -409,7 +411,7 @@ func browseAndSelectTicket(boardID string, c *client.KaizenClient) (string, stri
 		fmt.Println(header)
 		fmt.Println()
 
-		ticketID, selectErr := promptTicketSelection(resp.Data.Content, resp.Data.TotalPages, currentPage)
+		ticketID, selectErr := promptTicketSelection(resp.Data, 1, currentPage)
 		if selectErr != nil {
 			return "", "", selectErr
 		}
