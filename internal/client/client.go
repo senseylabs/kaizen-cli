@@ -120,7 +120,7 @@ func (c *KaizenClient) doRequestWithRetry(method, path string, payload interface
 		}
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 	if err != nil {

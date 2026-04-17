@@ -82,11 +82,11 @@ func runBacklogGet(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tTYPE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tTYPE")
 	for _, t := range backlog.Tickets {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, t.Title, t.Status, t.Priority, t.Type)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, t.Title, t.Status, t.Priority, t.Type)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	return nil
 }

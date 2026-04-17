@@ -167,15 +167,15 @@ func runBoardList(cmd *cobra.Command, args []string) error {
 
 func printBoardTable(boards []client.Board) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tKEY\tDESCRIPTION")
+	_, _ = fmt.Fprintln(w, "NAME\tKEY\tDESCRIPTION")
 	for _, b := range boards {
 		desc := b.Description
 		if len(desc) > 50 {
 			desc = desc[:50] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", b.Name, b.Prefix, desc)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", b.Name, b.Prefix, desc)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 func runBoardGet(cmd *cobra.Command, args []string) error {
