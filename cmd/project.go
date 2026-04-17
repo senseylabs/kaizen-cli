@@ -98,15 +98,15 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tCOLOR\tID")
+	_, _ = fmt.Fprintln(w, "NAME\tCOLOR\tID")
 	for _, p := range resp.Data {
 		color := ""
 		if p.Color != nil {
 			color = *p.Color
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, color, p.ID)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", p.Name, color, p.ID)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	return nil
 }

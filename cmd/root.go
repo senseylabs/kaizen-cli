@@ -84,7 +84,7 @@ func initConfig() {
 	storedCreds, err := store.Load()
 	if err != nil {
 		if !strings.Contains(err.Error(), "no credentials found") {
-			fmt.Fprintf(os.Stderr, "Warning: could not load stored credentials: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "Warning: could not load stored credentials: %v\n", err)
 		}
 	}
 
