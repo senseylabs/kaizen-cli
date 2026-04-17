@@ -18,30 +18,30 @@ var labelCmd = &cobra.Command{
 }
 
 var labelListCmd = &cobra.Command{
-	Use:   "list [board]",
+	Use:   "list",
 	Short: "List labels for a board",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runLabelList,
 }
 
 var labelCreateCmd = &cobra.Command{
-	Use:   "create [board]",
+	Use:   "create",
 	Short: "Create a new label",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runLabelCreate,
 }
 
 var labelUpdateCmd = &cobra.Command{
-	Use:   "update <board> <labelId>",
+	Use:   "update <labelId>",
 	Short: "Update a label",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runLabelUpdate,
 }
 
 var labelDeleteCmd = &cobra.Command{
-	Use:   "delete <board> <labelId>",
+	Use:   "delete <labelId>",
 	Short: "Delete a label",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runLabelDelete,
 }
 
@@ -49,13 +49,18 @@ func init() {
 	rootCmd.AddCommand(labelCmd)
 
 	labelCmd.AddCommand(labelListCmd)
-	labelCmd.AddCommand(labelCreateCmd)
-	labelCmd.AddCommand(labelUpdateCmd)
-	labelCmd.AddCommand(labelDeleteCmd)
-
+	labelListCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	labelListCmd.Flags().Bool("refresh", false, "Bypass cache and fetch fresh data")
 
+	labelCmd.AddCommand(labelCreateCmd)
+	labelCreateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	labelCreateCmd.Flags().String("name", "", "Label name (required)")
+
+	labelCmd.AddCommand(labelUpdateCmd)
+	labelUpdateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+
+	labelCmd.AddCommand(labelDeleteCmd)
+	labelDeleteCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	labelCreateCmd.Flags().String("color", "", "Label color")
 
 	labelUpdateCmd.Flags().String("name", "", "Label name")
@@ -69,7 +74,7 @@ func runLabelList(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -134,7 +139,7 @@ func runLabelCreate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -181,12 +186,12 @@ func runLabelUpdate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	labelID := args[1]
+	labelID := args[0]
 
 	payload := client.LabelUpdateRequest{}
 	if cmd.Flags().Changed("name") {
@@ -221,12 +226,20 @@ func runLabelDelete(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	labelID := args[1]
+	labelID := args[0]
+
+	if isInteractive() {
+		confirmed, _ := promptYesNo(fmt.Sprintf("Delete label %s", labelID))
+		if !confirmed {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
 
 	_, err = c.Delete(fmt.Sprintf("/kaizen/boards/%s/labels/%s", boardID, labelID))
 	if err != nil {

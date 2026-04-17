@@ -6,7 +6,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/senseylabs/kaizen-cli/internal/cache"
 	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/spf13/cobra"
 )
@@ -26,9 +25,9 @@ var commentCmd = &cobra.Command{
 // ---------------------------------------------------------------------------
 
 var commentListCmd = &cobra.Command{
-	Use:   "list <board> <ticketId>",
+	Use:   "list [ticketKey]",
 	Short: "List comments on a ticket",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runCommentList,
 }
 
@@ -39,12 +38,29 @@ func runCommentList(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments", boardID, args[1])
+	var ticketID string
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments", boardID, ticketID)
 	body, err := c.Get(path)
 	if err != nil {
 		return fmt.Errorf("failed to list comments: %w", err)
@@ -90,9 +106,9 @@ func runCommentList(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var commentAddCmd = &cobra.Command{
-	Use:   "add <board> <ticketId>",
+	Use:   "add [ticketKey]",
 	Short: "Add a comment to a ticket",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runCommentAdd,
 }
 
@@ -103,17 +119,44 @@ func runCommentAdd(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
+	var ticketID string
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
 	content, _ := cmd.Flags().GetString("content")
+	if content == "" && isInteractive() {
+		content, err = promptTextRequired("Comment")
+		if err != nil {
+			return err
+		}
+	}
+	if content == "" {
+		return fmt.Errorf("--content is required")
+	}
+
 	req := client.CommentCreateRequest{
 		Content: content,
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments", boardID, args[1])
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments", boardID, ticketID)
 	body, err := c.Post(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to add comment: %w", err)
@@ -138,9 +181,9 @@ func runCommentAdd(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var commentUpdateCmd = &cobra.Command{
-	Use:   "update <board> <ticketId> <commentId>",
+	Use:   "update [ticketKey]",
 	Short: "Update a comment",
-	Args:  cobra.ExactArgs(3),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runCommentUpdate,
 }
 
@@ -151,17 +194,64 @@ func runCommentUpdate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
+	var ticketID string
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
+	commentID, _ := cmd.Flags().GetString("comment-id")
+	if commentID == "" && isInteractive() {
+		// Fetch comments and let user pick
+		comments, fetchErr := fetchComments(boardID, ticketID, c)
+		if fetchErr != nil {
+			return fetchErr
+		}
+		if len(comments) == 0 {
+			fmt.Println("No comments found on this ticket.")
+			return nil
+		}
+		commentID, err = promptCommentSelection(comments)
+		if err != nil {
+			return nil // user cancelled
+		}
+	}
+	if commentID == "" {
+		return fmt.Errorf("--comment-id is required in non-interactive mode")
+	}
+
 	content, _ := cmd.Flags().GetString("content")
+	if content == "" && isInteractive() {
+		content, err = promptTextRequired("New content")
+		if err != nil {
+			return err
+		}
+	}
+	if content == "" {
+		return fmt.Errorf("--content is required")
+	}
+
 	req := client.CommentUpdateRequest{
 		Content: content,
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments/%s", boardID, args[1], args[2])
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments/%s", boardID, ticketID, commentID)
 	body, err := c.Put(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to update comment: %w", err)
@@ -172,7 +262,7 @@ func runCommentUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Updated comment %s\n", args[2])
+	fmt.Printf("Updated comment %s\n", commentID)
 	return nil
 }
 
@@ -181,9 +271,9 @@ func runCommentUpdate(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var commentDeleteCmd = &cobra.Command{
-	Use:   "delete <board> <ticketId> <commentId>",
+	Use:   "delete [ticketKey]",
 	Short: "Delete a comment",
-	Args:  cobra.ExactArgs(3),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runCommentDelete,
 }
 
@@ -194,18 +284,63 @@ func runCommentDelete(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments/%s", boardID, args[1], args[2])
+	var ticketID string
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
+	commentID, _ := cmd.Flags().GetString("comment-id")
+	if commentID == "" && isInteractive() {
+		// Fetch comments and let user pick
+		comments, fetchErr := fetchComments(boardID, ticketID, c)
+		if fetchErr != nil {
+			return fetchErr
+		}
+		if len(comments) == 0 {
+			fmt.Println("No comments found on this ticket.")
+			return nil
+		}
+		commentID, err = promptCommentSelection(comments)
+		if err != nil {
+			return nil // user cancelled
+		}
+	}
+	if commentID == "" {
+		return fmt.Errorf("--comment-id is required in non-interactive mode")
+	}
+
+	if isInteractive() {
+		confirmed, _ := promptYesNo("Delete this comment")
+		if !confirmed {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/comments/%s", boardID, ticketID, commentID)
 	_, err = c.Delete(path)
 	if err != nil {
 		return fmt.Errorf("failed to delete comment: %w", err)
 	}
 
-	fmt.Printf("Deleted comment %s\n", args[2])
+	fmt.Printf("Deleted comment %s\n", commentID)
 	return nil
 }
 
@@ -218,17 +353,21 @@ func init() {
 
 	// comment list
 	commentCmd.AddCommand(commentListCmd)
+	commentListCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// comment add
 	commentCmd.AddCommand(commentAddCmd)
-	commentAddCmd.Flags().String("content", "", "Comment content (required)")
-	_ = commentAddCmd.MarkFlagRequired("content")
+	commentAddCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+	commentAddCmd.Flags().String("content", "", "Comment content")
 
 	// comment update
 	commentCmd.AddCommand(commentUpdateCmd)
-	commentUpdateCmd.Flags().String("content", "", "New comment content (required)")
-	_ = commentUpdateCmd.MarkFlagRequired("content")
+	commentUpdateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+	commentUpdateCmd.Flags().String("comment-id", "", "Comment ID to update")
+	commentUpdateCmd.Flags().String("content", "", "New comment content")
 
 	// comment delete
 	commentCmd.AddCommand(commentDeleteCmd)
+	commentDeleteCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+	commentDeleteCmd.Flags().String("comment-id", "", "Comment ID to delete")
 }

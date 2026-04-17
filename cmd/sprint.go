@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -28,9 +30,9 @@ var sprintCmd = &cobra.Command{
 // ---------------------------------------------------------------------------
 
 var sprintListCmd = &cobra.Command{
-	Use:   "list [board]",
+	Use:   "list",
 	Short: "List sprints on a board",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runSprintList,
 }
 
@@ -41,15 +43,7 @@ func runSprintList(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardName := cfgDefaultBoard
-	if len(args) > 0 {
-		boardName = args[0]
-	}
-	if boardName == "" {
-		return fmt.Errorf("board is required. Pass as argument or set a default board")
-	}
-
-	boardID, err := cache.ResolveBoard(boardName, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -92,10 +86,6 @@ func runSprintList(cmd *cobra.Command, args []string) error {
 	// Cache the sprints
 	_ = cache.Set(cacheKey, resp.Data)
 
-	if cfgJSON {
-		return nil
-	}
-
 	if len(resp.Data) == 0 {
 		fmt.Println("No sprints found.")
 		return nil
@@ -127,9 +117,9 @@ func printSprintTable(sprints []client.Sprint) {
 // ---------------------------------------------------------------------------
 
 var sprintGetCmd = &cobra.Command{
-	Use:   "get <board> <sprintId>",
-	Short: "Get a sprint by ID",
-	Args:  cobra.ExactArgs(2),
+	Use:   "get [sprintName]",
+	Short: "Get a sprint by name or select interactively",
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintGet,
 }
 
@@ -140,12 +130,17 @@ func runSprintGet(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s", boardID, args[1])
+	sprintID, _, err := resolveSprintArg(boardID, args, c)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s", boardID, sprintID)
 	body, err := c.Get(path)
 	if err != nil {
 		return fmt.Errorf("failed to get sprint: %w", err)
@@ -182,9 +177,9 @@ func runSprintGet(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintCreateCmd = &cobra.Command{
-	Use:   "create <board>",
+	Use:   "create",
 	Short: "Create a new sprint",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runSprintCreate,
 }
 
@@ -195,23 +190,54 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
 	name, _ := cmd.Flags().GetString("name")
+
+	// Interactive mode if name not provided
+	if name == "" && isInteractive() {
+		var promptErr error
+		name, promptErr = promptTextRequired("Name")
+		if promptErr != nil {
+			return promptErr
+		}
+	}
+	if name == "" {
+		return fmt.Errorf("--name is required (or run interactively)")
+	}
+
 	req := client.SprintCreateRequest{
 		Name: name,
 	}
+
 	if v, _ := cmd.Flags().GetString("description"); v != "" {
 		req.Description = v
+	} else if isInteractive() && !cmd.Flags().Changed("description") {
+		desc, promptErr := promptText("Description (optional)")
+		if promptErr == nil && desc != "" {
+			req.Description = desc
+		}
 	}
+
 	if v, _ := cmd.Flags().GetString("start-date"); v != "" {
 		req.StartDate = &v
+	} else if isInteractive() && !cmd.Flags().Changed("start-date") {
+		startDate, promptErr := promptDate("Start Date (optional)")
+		if promptErr == nil && startDate != "" {
+			req.StartDate = &startDate
+		}
 	}
+
 	if v, _ := cmd.Flags().GetString("end-date"); v != "" {
 		req.EndDate = &v
+	} else if isInteractive() && !cmd.Flags().Changed("end-date") {
+		endDate, promptErr := promptDate("End Date (optional)")
+		if promptErr == nil && endDate != "" {
+			req.EndDate = &endDate
+		}
 	}
 
 	path := fmt.Sprintf("/kaizen/boards/%s/sprints", boardID)
@@ -242,9 +268,9 @@ func runSprintCreate(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintUpdateCmd = &cobra.Command{
-	Use:   "update <board> <sprintId>",
+	Use:   "update [sprintName]",
 	Short: "Update a sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintUpdate,
 }
 
@@ -255,7 +281,12 @@ func runSprintUpdate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
+	if err != nil {
+		return err
+	}
+
+	sprintID, _, err := resolveSprintArg(boardID, args, c)
 	if err != nil {
 		return err
 	}
@@ -284,11 +315,87 @@ func runSprintUpdate(cmd *cobra.Command, args []string) error {
 		hasChanges = true
 	}
 
-	if !hasChanges {
-		return fmt.Errorf("no fields specified to update")
+	// Interactive field picker if no flags changed
+	if !hasChanges && isInteractive() {
+		updateFields := []string{"Name", "Description", "Start Date", "End Date"}
+
+		cyan := promptColor("\033[36m")
+		dim := promptColor("\033[90m")
+		reset := promptReset()
+
+		for {
+			label := "What would you like to update?"
+			if hasChanges {
+				label = "What else would you like to update?"
+			}
+
+			_, _ = fmt.Fprintf(os.Stdout, "%s%s%s\n", cyan, label, reset)
+			for i, f := range updateFields {
+				_, _ = fmt.Fprintf(os.Stdout, "  %s%d%s  %s\n", dim, i+1, reset, f)
+			}
+
+			reader := bufio.NewReader(os.Stdin)
+			_, _ = fmt.Fprintf(os.Stdout, "Select (or 'd' when done): ")
+			input, readErr := reader.ReadString('\n')
+			if readErr != nil {
+				return fmt.Errorf("failed to read input: %w", readErr)
+			}
+			input = strings.TrimSpace(input)
+
+			if strings.EqualFold(input, "d") {
+				break
+			}
+
+			num, parseErr := strconv.Atoi(input)
+			if parseErr != nil || num < 1 || num > len(updateFields) {
+				_, _ = fmt.Fprintf(os.Stdout, "Invalid selection. Enter a number between 1 and %d.\n", len(updateFields))
+				continue
+			}
+
+			switch num {
+			case 1: // Name
+				val, promptErr := promptTextRequired("Name")
+				if promptErr != nil {
+					return promptErr
+				}
+				req.Name = &val
+				hasChanges = true
+			case 2: // Description
+				val, promptErr := promptText("Description")
+				if promptErr != nil {
+					return promptErr
+				}
+				req.Description = &val
+				hasChanges = true
+			case 3: // Start Date
+				val, promptErr := promptDate("Start Date")
+				if promptErr != nil {
+					return promptErr
+				}
+				if val != "" {
+					req.StartDate = &val
+					hasChanges = true
+				}
+			case 4: // End Date
+				val, promptErr := promptDate("End Date")
+				if promptErr != nil {
+					return promptErr
+				}
+				if val != "" {
+					req.EndDate = &val
+					hasChanges = true
+				}
+			}
+			fmt.Println()
+		}
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s", boardID, args[1])
+	if !hasChanges {
+		fmt.Println("No changes selected.")
+		return nil
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s", boardID, sprintID)
 	body, err := c.Put(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to update sprint: %w", err)
@@ -307,7 +414,7 @@ func runSprintUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse sprint response: %w", err)
 	}
 
-	fmt.Printf("Updated sprint: %s\n", resp.Data.Name)
+	_, _ = fmt.Fprintf(os.Stdout, "Updated sprint: %s\n", resp.Data.Name)
 	return nil
 }
 
@@ -316,9 +423,9 @@ func runSprintUpdate(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintStartCmd = &cobra.Command{
-	Use:   "start <board> <sprintId>",
+	Use:   "start [sprintName]",
 	Short: "Start a sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintStart,
 }
 
@@ -329,12 +436,17 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/start", boardID, args[1])
+	sprintID, displayName, err := resolveSprintArgFiltered(boardID, args, "PLANNED", c)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/start", boardID, sprintID)
 	_, err = c.Post(path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to start sprint: %w", err)
@@ -343,7 +455,7 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 	// Invalidate sprint cache
 	_ = cache.Delete(fmt.Sprintf("sprints:%s", boardID))
 
-	fmt.Printf("Started sprint %s\n", args[1])
+	_, _ = fmt.Fprintf(os.Stdout, "Started sprint %s\n", displayName)
 	return nil
 }
 
@@ -352,9 +464,9 @@ func runSprintStart(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintCompleteCmd = &cobra.Command{
-	Use:   "complete <board> <sprintId>",
+	Use:   "complete [sprintName]",
 	Short: "Complete a sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintComplete,
 }
 
@@ -365,12 +477,17 @@ func runSprintComplete(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/complete", boardID, args[1])
+	sprintID, displayName, err := resolveSprintArgFiltered(boardID, args, "ACTIVE", c)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/complete", boardID, sprintID)
 	_, err = c.Post(path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to complete sprint: %w", err)
@@ -379,7 +496,7 @@ func runSprintComplete(cmd *cobra.Command, args []string) error {
 	// Invalidate sprint cache
 	_ = cache.Delete(fmt.Sprintf("sprints:%s", boardID))
 
-	fmt.Printf("Completed sprint %s\n", args[1])
+	_, _ = fmt.Fprintf(os.Stdout, "Completed sprint %s\n", displayName)
 	return nil
 }
 
@@ -388,9 +505,9 @@ func runSprintComplete(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintLinkCmd = &cobra.Command{
-	Use:   "link <board> <sprintId>",
+	Use:   "link [sprintName]",
 	Short: "Link tickets to a sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintLink,
 }
 
@@ -401,28 +518,67 @@ func runSprintLink(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
+	if err != nil {
+		return err
+	}
+
+	sprintID, displayName, err := resolveSprintArg(boardID, args, c)
 	if err != nil {
 		return err
 	}
 
 	tickets, _ := cmd.Flags().GetString("tickets")
 	if tickets == "" {
-		return fmt.Errorf("--tickets is required")
+		if isInteractive() {
+			// Browse and multi-select tickets
+			ticketIDs, selectErr := browseAndMultiSelectTickets(boardID, c)
+			if selectErr != nil {
+				return selectErr
+			}
+			tickets = strings.Join(ticketIDs, ",")
+		} else {
+			return fmt.Errorf("--tickets is required")
+		}
 	}
 
 	req := client.SprintLinkRequest{
 		TicketIDs: strings.Split(tickets, ","),
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/link", boardID, args[1])
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/link", boardID, sprintID)
 	_, err = c.Post(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to link tickets to sprint: %w", err)
 	}
 
-	fmt.Printf("Linked %d tickets to sprint %s\n", len(req.TicketIDs), args[1])
+	_, _ = fmt.Fprintf(os.Stdout, "Linked %d tickets to sprint %s\n", len(req.TicketIDs), displayName)
 	return nil
+}
+
+// browseAndMultiSelectTickets lets the user interactively pick multiple tickets.
+func browseAndMultiSelectTickets(boardID string, c *client.KaizenClient) ([]string, error) {
+	var ticketIDs []string
+	for {
+		_, ticketID, err := browseAndSelectTicket(boardID, c)
+		if err != nil {
+			if len(ticketIDs) > 0 {
+				break // user cancelled after selecting at least one
+			}
+			return nil, err
+		}
+		ticketIDs = append(ticketIDs, ticketID)
+		_, _ = fmt.Fprintf(os.Stdout, "  Selected %d ticket(s).\n", len(ticketIDs))
+
+		more, promptErr := promptYesNo("Select another ticket")
+		if promptErr != nil || !more {
+			break
+		}
+	}
+	if len(ticketIDs) == 0 {
+		return nil, fmt.Errorf("no tickets selected")
+	}
+	return ticketIDs, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -430,9 +586,9 @@ func runSprintLink(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintUnlinkCmd = &cobra.Command{
-	Use:   "unlink <board> <sprintId>",
+	Use:   "unlink [sprintName]",
 	Short: "Unlink tickets from a sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintUnlink,
 }
 
@@ -443,27 +599,40 @@ func runSprintUnlink(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
+	if err != nil {
+		return err
+	}
+
+	sprintID, displayName, err := resolveSprintArg(boardID, args, c)
 	if err != nil {
 		return err
 	}
 
 	tickets, _ := cmd.Flags().GetString("tickets")
 	if tickets == "" {
-		return fmt.Errorf("--tickets is required")
+		if isInteractive() {
+			ticketIDs, selectErr := browseAndMultiSelectTickets(boardID, c)
+			if selectErr != nil {
+				return selectErr
+			}
+			tickets = strings.Join(ticketIDs, ",")
+		} else {
+			return fmt.Errorf("--tickets is required")
+		}
 	}
 
 	req := client.SprintLinkRequest{
 		TicketIDs: strings.Split(tickets, ","),
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/unlink", boardID, args[1])
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/unlink", boardID, sprintID)
 	_, err = c.Post(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to unlink tickets from sprint: %w", err)
 	}
 
-	fmt.Printf("Unlinked %d tickets from sprint %s\n", len(req.TicketIDs), args[1])
+	_, _ = fmt.Fprintf(os.Stdout, "Unlinked %d tickets from sprint %s\n", len(req.TicketIDs), displayName)
 	return nil
 }
 
@@ -472,9 +641,9 @@ func runSprintUnlink(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintDeleteCmd = &cobra.Command{
-	Use:   "delete <board> <sprintId>",
+	Use:   "delete [sprintName]",
 	Short: "Delete a sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintDelete,
 }
 
@@ -485,12 +654,25 @@ func runSprintDelete(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s", boardID, args[1])
+	sprintID, displayName, err := resolveSprintArg(boardID, args, c)
+	if err != nil {
+		return err
+	}
+
+	if isInteractive() {
+		confirmed, _ := promptYesNo(fmt.Sprintf("Delete sprint '%s'", displayName))
+		if !confirmed {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s", boardID, sprintID)
 	_, err = c.Delete(path)
 	if err != nil {
 		return fmt.Errorf("failed to delete sprint: %w", err)
@@ -499,7 +681,7 @@ func runSprintDelete(cmd *cobra.Command, args []string) error {
 	// Invalidate sprint cache
 	_ = cache.Delete(fmt.Sprintf("sprints:%s", boardID))
 
-	fmt.Printf("Deleted sprint %s\n", args[1])
+	_, _ = fmt.Fprintf(os.Stdout, "Deleted sprint %s\n", displayName)
 	return nil
 }
 
@@ -508,9 +690,9 @@ func runSprintDelete(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var sprintRestoreCmd = &cobra.Command{
-	Use:   "restore <board> <sprintId>",
+	Use:   "restore [sprintName]",
 	Short: "Restore a deleted sprint",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runSprintRestore,
 }
 
@@ -521,12 +703,17 @@ func runSprintRestore(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/restore", boardID, args[1])
+	sprintID, displayName, err := resolveSprintArg(boardID, args, c)
+	if err != nil {
+		return err
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/sprints/%s/restore", boardID, sprintID)
 	_, err = c.Post(path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to restore sprint: %w", err)
@@ -535,7 +722,7 @@ func runSprintRestore(cmd *cobra.Command, args []string) error {
 	// Invalidate sprint cache
 	_ = cache.Delete(fmt.Sprintf("sprints:%s", boardID))
 
-	fmt.Printf("Restored sprint %s\n", args[1])
+	_, _ = fmt.Fprintf(os.Stdout, "Restored sprint %s\n", displayName)
 	return nil
 }
 
@@ -548,21 +735,24 @@ func init() {
 
 	// sprint list
 	sprintCmd.AddCommand(sprintListCmd)
+	sprintListCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	sprintListCmd.Flags().Bool("refresh", false, "Bypass cache and fetch fresh data")
 
 	// sprint get
 	sprintCmd.AddCommand(sprintGetCmd)
+	sprintGetCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// sprint create
 	sprintCmd.AddCommand(sprintCreateCmd)
-	sprintCreateCmd.Flags().String("name", "", "Sprint name (required)")
+	sprintCreateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+	sprintCreateCmd.Flags().String("name", "", "Sprint name")
 	sprintCreateCmd.Flags().String("description", "", "Sprint description")
 	sprintCreateCmd.Flags().String("start-date", "", "Start date (YYYY-MM-DD)")
 	sprintCreateCmd.Flags().String("end-date", "", "End date (YYYY-MM-DD)")
-	_ = sprintCreateCmd.MarkFlagRequired("name")
 
 	// sprint update
 	sprintCmd.AddCommand(sprintUpdateCmd)
+	sprintUpdateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	sprintUpdateCmd.Flags().String("name", "", "New name")
 	sprintUpdateCmd.Flags().String("description", "", "New description")
 	sprintUpdateCmd.Flags().String("start-date", "", "New start date (YYYY-MM-DD)")
@@ -570,21 +760,27 @@ func init() {
 
 	// sprint start
 	sprintCmd.AddCommand(sprintStartCmd)
+	sprintStartCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// sprint complete
 	sprintCmd.AddCommand(sprintCompleteCmd)
+	sprintCompleteCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// sprint link
 	sprintCmd.AddCommand(sprintLinkCmd)
-	sprintLinkCmd.Flags().String("tickets", "", "Comma-separated ticket IDs (required)")
+	sprintLinkCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+	sprintLinkCmd.Flags().String("tickets", "", "Comma-separated ticket IDs")
 
 	// sprint unlink
 	sprintCmd.AddCommand(sprintUnlinkCmd)
-	sprintUnlinkCmd.Flags().String("tickets", "", "Comma-separated ticket IDs (required)")
+	sprintUnlinkCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+	sprintUnlinkCmd.Flags().String("tickets", "", "Comma-separated ticket IDs")
 
 	// sprint delete
 	sprintCmd.AddCommand(sprintDeleteCmd)
+	sprintDeleteCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// sprint restore
 	sprintCmd.AddCommand(sprintRestoreCmd)
+	sprintRestoreCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 }
