@@ -9,7 +9,9 @@ import (
 	"github.com/senseylabs/kaizen-cli/internal/auth"
 	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/senseylabs/kaizen-cli/internal/config"
+	"github.com/senseylabs/kaizen-cli/internal/update"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 const (
@@ -45,6 +47,17 @@ var rootCmd = &cobra.Command{
 	Use:   "kaizen",
 	Short: "Kaizen CLI — project management from your terminal",
 	Long:  "A CLI tool for managing boards, tickets, sprints, and backlogs in Kaizen. Supports Keycloak password grant authentication.",
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if cfgJSON {
+			return
+		}
+		latestVersion := update.CheckForUpdate(appVersion)
+		if latestVersion == "" {
+			return
+		}
+		useColor := term.IsTerminal(int(os.Stderr.Fd()))
+		_, _ = fmt.Fprint(os.Stderr, update.FormatNotice(appVersion, latestVersion, useColor))
+	},
 }
 
 // Execute runs the root command.
