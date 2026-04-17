@@ -258,13 +258,13 @@ func resolveTicketByKey(boardID string, key string, c *client.KaizenClient) (str
 		return key, nil
 	}
 
-	// Search by key
+	// Search by key using the all-tickets endpoint (no sprint/backlog required)
 	params := url.Values{}
 	params.Set("search", key)
 	params.Set("page", "0")
 	params.Set("amount", "50")
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets?%s", boardID, params.Encode())
+	path := fmt.Sprintf("/kaizen/tickets?%s", params.Encode())
 	body, err := c.Get(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to search for ticket %q: %w", key, err)
