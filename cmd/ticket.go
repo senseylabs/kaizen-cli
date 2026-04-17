@@ -146,7 +146,7 @@ func fetchAndPrintTickets(boardID string, header string, params url.Values, c *c
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE\tLOCATION")
 	for _, t := range resp.Data {
 		assignee := ""
 		if len(t.Assignees) > 0 {
@@ -156,7 +156,13 @@ func fetchAndPrintTickets(boardID string, header string, params url.Values, c *c
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
+		location := "—"
+		if t.Sprint != nil {
+			location = t.Sprint.Name
+		} else if t.Backlog != nil {
+			location = "Backlog"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee, location)
 	}
 	_ = w.Flush()
 
@@ -348,7 +354,7 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE\tLOCATION")
 	for _, t := range resp.Data {
 		assignee := ""
 		if len(t.Assignees) > 0 {
@@ -358,7 +364,13 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
+		location := "—"
+		if t.Sprint != nil {
+			location = t.Sprint.Name
+		} else if t.Backlog != nil {
+			location = "Backlog"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee, location)
 	}
 	_ = w.Flush()
 
@@ -430,7 +442,7 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE\tLOCATION")
 	for _, t := range resp.Data {
 		assignee := ""
 		if len(t.Assignees) > 0 {
@@ -440,7 +452,13 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
+		location := "—"
+		if t.Sprint != nil {
+			location = t.Sprint.Name
+		} else if t.Backlog != nil {
+			location = "Backlog"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee, location)
 	}
 	_ = w.Flush()
 
