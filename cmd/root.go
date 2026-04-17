@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	prodAPIURL       = "https://api.village.sensey.io"
+	prodAPIURL       = "https://api.sensey.io"
 	prodIssuer       = "https://keycloak.sensey.io/realms/sensey"
-	prodClientID     = "village-app"
+	prodClientID     = "kaizen-cli"
 	devAPIURL        = "http://localhost:8080"
 	devIssuer        = "http://localhost:8086/realms/sensey"
 	devClientID      = "village-jwt-test-client"
