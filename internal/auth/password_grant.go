@@ -42,7 +42,7 @@ func PasswordGrant(issuerURL, clientID, clientSecret, username, password string)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Keycloak: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -76,7 +76,7 @@ func RefreshToken(issuerURL, clientID, clientSecret, refreshToken string) (*Toke
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to Keycloak: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

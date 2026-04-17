@@ -66,21 +66,21 @@ func runCommentList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tAUTHOR\tDATE\tCONTENT")
+	_, _ = fmt.Fprintln(w, "ID\tAUTHOR\tDATE\tCONTENT")
 	for _, comment := range resp.Data {
 		content := comment.Content
 		if len(content) > 60 {
 			content = content[:57] + "..."
 		}
 		author := comment.AuthorFirstName + " " + comment.AuthorLastName
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			comment.ID,
 			author,
 			comment.CreatedAt,
 			content,
 		)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	return nil
 }
