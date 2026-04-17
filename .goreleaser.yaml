@@ -27,7 +27,7 @@ brews:
   - repository:
       owner: senseylabs
       name: homebrew-tap
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.GH_PAT }}"
     directory: Formula
     homepage: "https://github.com/senseylabs/kaizen-cli"
     description: "CLI tool for Kaizen board management"
