@@ -80,9 +80,9 @@ var boardRelatedCmd = &cobra.Command{
 }
 
 var boardSetDefaultCmd = &cobra.Command{
-	Use:   "set-default <board name>",
+	Use:   "set-default [board name]",
 	Short: "Set the default board in config",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runBoardSetDefault,
 }
 
@@ -125,55 +125,59 @@ func runBoardList(cmd *cobra.Command, args []string) error {
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 	refresh, _ := cmd.Flags().GetBool("refresh")
 
-	boardsTTL := 30 * time.Minute
-	cacheKey := "boards"
-
-	// Try cache unless --refresh
-	if !refresh {
-		if cached, ok := cache.Get(cacheKey, boardsTTL); ok {
-			if cfgJSON {
-				fmt.Println(string(cached))
-				return nil
-			}
-			var boards []client.Board
-			if err := json.Unmarshal(cached, &boards); err == nil {
-				printBoardTable(boards)
-				return nil
-			}
-		}
+	if refresh {
+		_ = cache.Delete("boards")
 	}
 
-	body, err := c.Get("/kaizen/boards?includeChildren=true&amount=100")
+	boards, err := fetchBoardList(c)
 	if err != nil {
-		return fmt.Errorf("failed to list boards: %w", err)
+		return err
 	}
-
-	var resp client.APIResponse[[]client.Board]
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("failed to parse boards response: %w", err)
-	}
-
-	_ = cache.Set(cacheKey, resp.Data)
 
 	if cfgJSON {
-		out, _ := json.MarshalIndent(resp.Data, "", "  ")
+		out, _ := json.MarshalIndent(boards, "", "  ")
 		fmt.Println(string(out))
 		return nil
 	}
 
-	printBoardTable(resp.Data)
+	printBoardTable(boards)
 	return nil
 }
 
-func printBoardTable(boards []client.Board) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tKEY\tDESCRIPTION")
+// flatBoard is a flattened board entry used for numbered display and selection.
+type flatBoard struct {
+	Name   string
+	Prefix string
+	Desc   string
+	IsChild bool
+}
+
+// flattenBoards builds a flat list of boards with children nested under their parents.
+func flattenBoards(boards []client.Board) []flatBoard {
+	var flat []flatBoard
 	for _, b := range boards {
 		desc := b.Description
 		if len(desc) > 50 {
 			desc = desc[:50] + "..."
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", b.Name, b.Prefix, desc)
+		flat = append(flat, flatBoard{Name: b.Name, Prefix: b.Prefix, Desc: desc, IsChild: false})
+		for _, ch := range b.ChildBoards {
+			flat = append(flat, flatBoard{Name: ch.Name, Prefix: ch.Prefix, Desc: "", IsChild: true})
+		}
+	}
+	return flat
+}
+
+func printBoardTable(boards []client.Board) {
+	flat := flattenBoards(boards)
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "#\tNAME\tKEY\tDESCRIPTION")
+	for i, fb := range flat {
+		name := fb.Name
+		if fb.IsChild {
+			name = "  └─ " + name
+		}
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", i+1, name, fb.Prefix, fb.Desc)
 	}
 	_ = w.Flush()
 }
@@ -426,12 +430,46 @@ func runBoardSetDefault(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	boardName := args[0]
-
-	// Validate board exists
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
-	if _, err := cache.ResolveBoard(boardName, c); err != nil {
-		return err
+
+	var boardName string
+
+	if len(args) > 0 {
+		boardName = args[0]
+		// Validate board exists
+		if _, err := cache.ResolveBoard(boardName, c); err != nil {
+			return err
+		}
+	} else {
+		// Interactive mode: show numbered board tree and let user pick
+		if !isInteractive() {
+			return fmt.Errorf("board name is required in non-interactive mode")
+		}
+
+		boards, err := fetchBoardList(c)
+		if err != nil {
+			return err
+		}
+
+		flat := flattenBoards(boards)
+		if len(flat) == 0 {
+			return fmt.Errorf("no boards found")
+		}
+
+		options := make([]string, len(flat))
+		for i, fb := range flat {
+			if fb.IsChild {
+				options[i] = fmt.Sprintf("  └─ %s (%s)", fb.Name, fb.Prefix)
+			} else {
+				options[i] = fmt.Sprintf("%s (%s)", fb.Name, fb.Prefix)
+			}
+		}
+
+		idx, err := promptSingleSelect("Select default board", options)
+		if err != nil {
+			return err
+		}
+		boardName = flat[idx].Name
 	}
 
 	// Write to ~/.kaizen/config.yaml
@@ -459,4 +497,30 @@ func runBoardSetDefault(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Default board set to %s\n", boardName)
 	return nil
+}
+
+// fetchBoardList fetches all boards from the API (with caching).
+func fetchBoardList(c *client.KaizenClient) ([]client.Board, error) {
+	boardsTTL := 30 * time.Minute
+	cacheKey := "boards"
+
+	if cached, ok := cache.Get(cacheKey, boardsTTL); ok {
+		var boards []client.Board
+		if err := json.Unmarshal(cached, &boards); err == nil {
+			return boards, nil
+		}
+	}
+
+	body, err := c.Get("/kaizen/boards?includeChildren=true&amount=100")
+	if err != nil {
+		return nil, fmt.Errorf("failed to list boards: %w", err)
+	}
+
+	var resp client.APIResponse[[]client.Board]
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse boards response: %w", err)
+	}
+
+	_ = cache.Set(cacheKey, resp.Data)
+	return resp.Data, nil
 }

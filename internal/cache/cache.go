@@ -135,9 +135,45 @@ type boardInfo struct {
 	Prefix string `json:"prefix"`
 }
 
+// boardWithChildren extends boardInfo with child boards for resolution.
+type boardWithChildren struct {
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`
+	Prefix      string      `json:"prefix"`
+	ChildBoards []boardInfo `json:"childBoards"`
+}
+
+// findBoardByName searches parent and child boards by name (case-insensitive).
+func findBoardByName(boards []boardWithChildren, nameOrID string) (string, bool) {
+	for _, b := range boards {
+		if strings.EqualFold(b.Name, nameOrID) {
+			return b.ID, true
+		}
+		for _, ch := range b.ChildBoards {
+			if strings.EqualFold(ch.Name, nameOrID) {
+				return ch.ID, true
+			}
+		}
+	}
+	return "", false
+}
+
+// collectBoardNames returns all parent and child board names for error messages.
+func collectBoardNames(boards []boardWithChildren) []string {
+	var names []string
+	for _, b := range boards {
+		names = append(names, b.Name)
+		for _, ch := range b.ChildBoards {
+			names = append(names, ch.Name)
+		}
+	}
+	return names
+}
+
 // ResolveBoard resolves a board name or UUID to a board UUID.
 // If the input is already a UUID, it is returned as-is.
 // Otherwise, boards are fetched (with caching) and the name is matched case-insensitively.
+// Both parent and child boards are searched.
 func ResolveBoard(nameOrID string, c *client.KaizenClient) (string, error) {
 	// UUID — return directly
 	if uuidRegex.MatchString(strings.ToLower(nameOrID)) {
@@ -149,12 +185,10 @@ func ResolveBoard(nameOrID string, c *client.KaizenClient) (string, error) {
 	// Try cache first
 	cached, ok := Get("boards", boardsTTL)
 	if ok {
-		var boards []boardInfo
+		var boards []boardWithChildren
 		if json.Unmarshal(cached, &boards) == nil {
-			for _, b := range boards {
-				if strings.EqualFold(b.Name, nameOrID) {
-					return b.ID, nil
-				}
+			if id, found := findBoardByName(boards, nameOrID); found {
+				return id, nil
 			}
 		}
 	}
@@ -165,7 +199,7 @@ func ResolveBoard(nameOrID string, c *client.KaizenClient) (string, error) {
 		return "", fmt.Errorf("failed to fetch boards: %w", err)
 	}
 
-	var resp client.APIResponse[[]boardInfo]
+	var resp client.APIResponse[[]boardWithChildren]
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return "", fmt.Errorf("failed to parse boards response: %w", err)
 	}
@@ -173,15 +207,10 @@ func ResolveBoard(nameOrID string, c *client.KaizenClient) (string, error) {
 	// Update cache
 	_ = Set("boards", resp.Data)
 
-	for _, b := range resp.Data {
-		if strings.EqualFold(b.Name, nameOrID) {
-			return b.ID, nil
-		}
+	if id, found := findBoardByName(resp.Data, nameOrID); found {
+		return id, nil
 	}
 
-	names := make([]string, len(resp.Data))
-	for i, b := range resp.Data {
-		names[i] = b.Name
-	}
+	names := collectBoardNames(resp.Data)
 	return "", fmt.Errorf("board %q not found. Available boards: %s", nameOrID, strings.Join(names, ", "))
 }
