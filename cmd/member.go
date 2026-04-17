@@ -126,12 +126,12 @@ func runMemberList(cmd *cobra.Command, args []string) error {
 
 func printMemberTable(members []client.BoardMember) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tEMAIL\tROLE")
+	_, _ = fmt.Fprintln(w, "NAME\tEMAIL\tROLE")
 	for _, m := range members {
 		name := fmt.Sprintf("%s %s", m.FirstName, m.LastName)
-		fmt.Fprintf(w, "%s\t%s\t%s\n", name, m.Email, m.Role)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", name, m.Email, m.Role)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 func runMemberAdd(cmd *cobra.Command, args []string) error {

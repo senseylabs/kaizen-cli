@@ -114,7 +114,7 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
 	for _, t := range resp.Data.Content {
 		assignee := ""
 		if len(t.Assignees) > 0 {
@@ -124,9 +124,9 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	fmt.Printf("\nShowing %d of %d tickets (page %d/%d)\n",
 		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)
@@ -192,7 +192,7 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
 	for _, t := range resp.Data.Content {
 		assignee := ""
 		if len(t.Assignees) > 0 {
@@ -202,9 +202,9 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	fmt.Printf("\nShowing %d of %d tickets (page %d/%d)\n",
 		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)
@@ -275,7 +275,7 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
+	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
 	for _, t := range resp.Data.Content {
 		assignee := ""
 		if len(t.Assignees) > 0 {
@@ -285,9 +285,9 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 		if len(title) > 50 {
 			title = title[:47] + "..."
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", t.Key, title, t.Status, t.Priority, assignee)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	fmt.Printf("\nShowing %d of %d tickets (page %d/%d)\n",
 		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)

@@ -116,15 +116,15 @@ func runLabelList(cmd *cobra.Command, args []string) error {
 
 func printLabelTable(labels []client.Label) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tCOLOR")
+	_, _ = fmt.Fprintln(w, "NAME\tCOLOR")
 	for _, l := range labels {
 		color := ""
 		if l.Color != nil {
 			color = *l.Color
 		}
-		fmt.Fprintf(w, "%s\t%s\n", l.Name, color)
+		_, _ = fmt.Fprintf(w, "%s\t%s\n", l.Name, color)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 func runLabelCreate(cmd *cobra.Command, args []string) error {

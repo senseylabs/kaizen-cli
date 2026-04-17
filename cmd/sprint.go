@@ -107,7 +107,7 @@ func runSprintList(cmd *cobra.Command, args []string) error {
 
 func printSprintTable(sprints []client.Sprint) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tSTATUS\tSTART\tEND")
+	_, _ = fmt.Fprintln(w, "NAME\tSTATUS\tSTART\tEND")
 	for _, s := range sprints {
 		start := "-"
 		if s.StartDate != nil {
@@ -117,9 +117,9 @@ func printSprintTable(sprints []client.Sprint) {
 		if s.EndDate != nil {
 			end = *s.EndDate
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Status, start, end)
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.Name, s.Status, start, end)
 	}
-	w.Flush()
+	_ = w.Flush()
 }
 
 // ---------------------------------------------------------------------------

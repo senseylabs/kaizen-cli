@@ -106,10 +106,10 @@ func (c *KaizenClient) doRequestWithRetry(method, path string, payload interface
 	}
 
 	if c.debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] %s %s\n", method, url)
-		fmt.Fprintf(os.Stderr, "[DEBUG] Authorization: Bearer <redacted>\n")
+		_, _ = fmt.Fprintf(os.Stderr, "[DEBUG] %s %s\n", method, url)
+		_, _ = fmt.Fprintf(os.Stderr, "[DEBUG] Authorization: Bearer <redacted>\n")
 		if c.OrgID != "" {
-			fmt.Fprintf(os.Stderr, "[DEBUG] X-Organization-ID: %s\n", c.OrgID)
+			_, _ = fmt.Fprintf(os.Stderr, "[DEBUG] X-Organization-ID: %s\n", c.OrgID)
 		}
 	}
 
@@ -128,13 +128,13 @@ func (c *KaizenClient) doRequestWithRetry(method, path string, payload interface
 	}
 
 	if c.debug {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Response: %d (%d bytes)\n", resp.StatusCode, len(body))
+		_, _ = fmt.Fprintf(os.Stderr, "[DEBUG] Response: %d (%d bytes)\n", resp.StatusCode, len(body))
 	}
 
 	// Handle 401: attempt token refresh and retry once
 	if resp.StatusCode == http.StatusUnauthorized && allowRetry {
 		if c.debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Got 401, attempting token refresh...\n")
+			_, _ = fmt.Fprintf(os.Stderr, "[DEBUG] Got 401, attempting token refresh...\n")
 		}
 		if refreshErr := c.tryRefreshToken(); refreshErr == nil {
 			return c.doRequestWithRetry(method, path, payload, false)
@@ -151,7 +151,7 @@ func (c *KaizenClient) doRequestWithRetry(method, path string, payload interface
 			}
 		}
 		if c.debug {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Got 429, waiting %ds...\n", waitSeconds)
+			_, _ = fmt.Fprintf(os.Stderr, "[DEBUG] Got 429, waiting %ds...\n", waitSeconds)
 		}
 		time.Sleep(time.Duration(waitSeconds) * time.Second)
 		return c.doRequestWithRetry(method, path, payload, false)
