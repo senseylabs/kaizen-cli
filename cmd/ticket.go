@@ -131,7 +131,7 @@ func fetchAndPrintTickets(boardID string, header string, params url.Values, c *c
 		return nil
 	}
 
-	var resp client.APIResponse[client.PaginatedResponse[client.Ticket]]
+	var resp client.APIResponse[[]client.Ticket]
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("failed to parse tickets response: %w", err)
 	}
@@ -140,14 +140,14 @@ func fetchAndPrintTickets(boardID string, header string, params url.Values, c *c
 	fmt.Println(header)
 	fmt.Println()
 
-	if len(resp.Data.Content) == 0 {
+	if len(resp.Data) == 0 {
 		fmt.Println("No tickets found.")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
-	for _, t := range resp.Data.Content {
+	for _, t := range resp.Data {
 		assignee := ""
 		if len(t.Assignees) > 0 {
 			assignee = t.Assignees[0].FirstName + " " + t.Assignees[0].LastName
@@ -160,8 +160,7 @@ func fetchAndPrintTickets(boardID string, header string, params url.Values, c *c
 	}
 	_ = w.Flush()
 
-	fmt.Printf("\nShowing %d of %d tickets (page %d/%d)\n",
-		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)
+	fmt.Printf("\nShowing %d tickets\n", len(resp.Data))
 
 	return nil
 }
@@ -338,19 +337,19 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var resp client.APIResponse[client.PaginatedResponse[client.Ticket]]
+	var resp client.APIResponse[[]client.Ticket]
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("failed to parse tickets response: %w", err)
 	}
 
-	if len(resp.Data.Content) == 0 {
+	if len(resp.Data) == 0 {
 		fmt.Println("No tickets found.")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
-	for _, t := range resp.Data.Content {
+	for _, t := range resp.Data {
 		assignee := ""
 		if len(t.Assignees) > 0 {
 			assignee = t.Assignees[0].FirstName + " " + t.Assignees[0].LastName
@@ -363,8 +362,7 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 	}
 	_ = w.Flush()
 
-	fmt.Printf("\nShowing %d of %d tickets (page %d/%d)\n",
-		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)
+	fmt.Printf("\nShowing %d tickets\n", len(resp.Data))
 
 	return nil
 }
@@ -421,19 +419,19 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var resp client.APIResponse[client.PaginatedResponse[client.Ticket]]
+	var resp client.APIResponse[[]client.Ticket]
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("failed to parse tickets response: %w", err)
 	}
 
-	if len(resp.Data.Content) == 0 {
+	if len(resp.Data) == 0 {
 		fmt.Println("No tickets assigned to you.")
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "KEY\tTITLE\tSTATUS\tPRIORITY\tASSIGNEE")
-	for _, t := range resp.Data.Content {
+	for _, t := range resp.Data {
 		assignee := ""
 		if len(t.Assignees) > 0 {
 			assignee = t.Assignees[0].FirstName + " " + t.Assignees[0].LastName
@@ -446,8 +444,7 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 	}
 	_ = w.Flush()
 
-	fmt.Printf("\nShowing %d of %d tickets (page %d/%d)\n",
-		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)
+	fmt.Printf("\nShowing %d tickets\n", len(resp.Data))
 
 	return nil
 }
