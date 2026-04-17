@@ -6,7 +6,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/senseylabs/kaizen-cli/internal/cache"
 	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/spf13/cobra"
 )
@@ -17,37 +16,37 @@ var projectCmd = &cobra.Command{
 }
 
 var projectListCmd = &cobra.Command{
-	Use:   "list [board]",
+	Use:   "list",
 	Short: "List projects for a board",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runProjectList,
 }
 
 var projectGetCmd = &cobra.Command{
-	Use:   "get <board> <projectId>",
+	Use:   "get <projectId>",
 	Short: "Get a project by ID",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runProjectGet,
 }
 
 var projectCreateCmd = &cobra.Command{
-	Use:   "create [board]",
+	Use:   "create",
 	Short: "Create a new project",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runProjectCreate,
 }
 
 var projectUpdateCmd = &cobra.Command{
-	Use:   "update <board> <projectId>",
+	Use:   "update <projectId>",
 	Short: "Update a project",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runProjectUpdate,
 }
 
 var projectDeleteCmd = &cobra.Command{
-	Use:   "delete <board> <projectId>",
+	Use:   "delete <projectId>",
 	Short: "Delete a project",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runProjectDelete,
 }
 
@@ -55,18 +54,25 @@ func init() {
 	rootCmd.AddCommand(projectCmd)
 
 	projectCmd.AddCommand(projectListCmd)
-	projectCmd.AddCommand(projectGetCmd)
-	projectCmd.AddCommand(projectCreateCmd)
-	projectCmd.AddCommand(projectUpdateCmd)
-	projectCmd.AddCommand(projectDeleteCmd)
+	projectListCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
+	projectCmd.AddCommand(projectGetCmd)
+	projectGetCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+
+	projectCmd.AddCommand(projectCreateCmd)
+	projectCreateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	projectCreateCmd.Flags().String("name", "", "Project name (required)")
 	projectCreateCmd.Flags().String("description", "", "Project description")
 	projectCreateCmd.Flags().String("color", "", "Project color")
 
+	projectCmd.AddCommand(projectUpdateCmd)
+	projectUpdateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	projectUpdateCmd.Flags().String("name", "", "Project name")
 	projectUpdateCmd.Flags().String("description", "", "Project description")
 	projectUpdateCmd.Flags().String("color", "", "Project color")
+
+	projectCmd.AddCommand(projectDeleteCmd)
+	projectDeleteCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 }
 
 func runProjectList(cmd *cobra.Command, args []string) error {
@@ -76,7 +82,7 @@ func runProjectList(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -118,12 +124,12 @@ func runProjectGet(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	projectID := args[1]
+	projectID := args[0]
 
 	body, err := c.Get(fmt.Sprintf("/kaizen/boards/%s/projects/%s", boardID, projectID))
 	if err != nil {
@@ -157,7 +163,7 @@ func runProjectCreate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -202,12 +208,12 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	projectID := args[1]
+	projectID := args[0]
 
 	payload := client.ProjectUpdateRequest{}
 	if cmd.Flags().Changed("name") {
@@ -240,12 +246,20 @@ func runProjectDelete(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	projectID := args[1]
+	projectID := args[0]
+
+	if isInteractive() {
+		confirmed, _ := promptYesNo(fmt.Sprintf("Delete project %s", projectID))
+		if !confirmed {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
 
 	_, err = c.Delete(fmt.Sprintf("/kaizen/boards/%s/projects/%s", boardID, projectID))
 	if err != nil {

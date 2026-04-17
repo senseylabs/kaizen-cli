@@ -19,37 +19,37 @@ var memberCmd = &cobra.Command{
 }
 
 var memberListCmd = &cobra.Command{
-	Use:   "list [board]",
+	Use:   "list",
 	Short: "List members of a board",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runMemberList,
 }
 
 var memberAddCmd = &cobra.Command{
-	Use:   "add [board]",
+	Use:   "add",
 	Short: "Add a member to a board",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runMemberAdd,
 }
 
 var memberRemoveCmd = &cobra.Command{
-	Use:   "remove <board> <userId>",
+	Use:   "remove <userId>",
 	Short: "Remove a member from a board",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runMemberRemove,
 }
 
 var memberUpdateCmd = &cobra.Command{
-	Use:   "update <board> <userId>",
+	Use:   "update <userId>",
 	Short: "Update a member's role",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runMemberUpdate,
 }
 
 var memberSpecialtiesCmd = &cobra.Command{
-	Use:   "specialties <board> <userId>",
+	Use:   "specialties <userId>",
 	Short: "Set a member's specialties",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runMemberSpecialties,
 }
 
@@ -57,18 +57,23 @@ func init() {
 	rootCmd.AddCommand(memberCmd)
 
 	memberCmd.AddCommand(memberListCmd)
-	memberCmd.AddCommand(memberAddCmd)
-	memberCmd.AddCommand(memberRemoveCmd)
-	memberCmd.AddCommand(memberUpdateCmd)
-	memberCmd.AddCommand(memberSpecialtiesCmd)
-
+	memberListCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	memberListCmd.Flags().Bool("refresh", false, "Bypass cache and fetch fresh data")
 
+	memberCmd.AddCommand(memberAddCmd)
+	memberAddCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	memberAddCmd.Flags().String("user-id", "", "User ID to add (required)")
 	memberAddCmd.Flags().String("role", "", "Member role (required)")
 
+	memberCmd.AddCommand(memberRemoveCmd)
+	memberRemoveCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
+
+	memberCmd.AddCommand(memberUpdateCmd)
+	memberUpdateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	memberUpdateCmd.Flags().String("role", "", "New role for the member")
 
+	memberCmd.AddCommand(memberSpecialtiesCmd)
+	memberSpecialtiesCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	memberSpecialtiesCmd.Flags().String("specialties", "", "Comma-separated list of specialties")
 }
 
@@ -79,7 +84,7 @@ func runMemberList(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -141,7 +146,7 @@ func runMemberAdd(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -181,12 +186,20 @@ func runMemberRemove(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	userID := args[1]
+	userID := args[0]
+
+	if isInteractive() {
+		confirmed, _ := promptYesNo(fmt.Sprintf("Remove member %s", userID))
+		if !confirmed {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
 
 	_, err = c.Delete(fmt.Sprintf("/kaizen/boards/%s/members/%s", boardID, userID))
 	if err != nil {
@@ -206,12 +219,12 @@ func runMemberUpdate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	userID := args[1]
+	userID := args[0]
 
 	role, _ := cmd.Flags().GetString("role")
 	if role == "" {
@@ -245,12 +258,12 @@ func runMemberSpecialties(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	userID := args[1]
+	userID := args[0]
 
 	specialtiesStr, _ := cmd.Flags().GetString("specialties")
 	if specialtiesStr == "" {

@@ -6,7 +6,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/senseylabs/kaizen-cli/internal/cache"
 	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/spf13/cobra"
 )
@@ -17,16 +16,16 @@ var backlogCmd = &cobra.Command{
 }
 
 var backlogGetCmd = &cobra.Command{
-	Use:   "get [board]",
+	Use:   "get",
 	Short: "Get the backlog for a board",
-	Args:  cobra.MaximumNArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runBacklogGet,
 }
 
 var backlogAddTicketCmd = &cobra.Command{
-	Use:   "add-ticket <board> <ticketId>",
+	Use:   "add-ticket <ticketId>",
 	Short: "Add a ticket to a board's backlog",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.ExactArgs(1),
 	RunE:  runBacklogAddTicket,
 }
 
@@ -34,17 +33,10 @@ func init() {
 	rootCmd.AddCommand(backlogCmd)
 
 	backlogCmd.AddCommand(backlogGetCmd)
-	backlogCmd.AddCommand(backlogAddTicketCmd)
-}
+	backlogGetCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
-func resolveBoard(cmd *cobra.Command, args []string, c *client.KaizenClient) (string, error) {
-	if len(args) > 0 && args[0] != "" {
-		return cache.ResolveBoard(args[0], c)
-	}
-	if cfgDefaultBoard != "" {
-		return cache.ResolveBoard(cfgDefaultBoard, c)
-	}
-	return "", fmt.Errorf("board is required. Use a positional argument or set a default board")
+	backlogCmd.AddCommand(backlogAddTicketCmd)
+	backlogAddTicketCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 }
 
 func runBacklogGet(cmd *cobra.Command, args []string) error {
@@ -54,7 +46,7 @@ func runBacklogGet(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := resolveBoard(cmd, args, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -98,12 +90,12 @@ func runBacklogAddTicket(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	ticketID := args[1]
+	ticketID := args[0]
 
 	_, err = c.Post(fmt.Sprintf("/kaizen/boards/%s/backlog/tickets/%s", boardID, ticketID), nil)
 	if err != nil {

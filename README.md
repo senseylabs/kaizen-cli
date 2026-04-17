@@ -2,6 +2,8 @@
 
 Command-line interface for [Kaizen](https://kaizen.sensey.io) board management by Sensey. Manage boards, tickets, sprints, backlogs, labels, projects, and members — all from your terminal.
 
+**Fully interactive** — run any command without arguments and the CLI will guide you through it. Or use flags for scripting and automation.
+
 ## Installation
 
 ### Homebrew (macOS/Linux)
@@ -53,21 +55,126 @@ kaizen whoami
 ### 4. Start using it
 
 ```bash
-# List your open tickets
-kaizen ticket mine --status TODO,IN_PROGRESS
+# Interactive — just run the command and follow the prompts
+kaizen ticket create
+kaizen ticket list
+kaizen ticket update
 
-# Create a ticket
-kaizen ticket create --title "Fix login redirect bug" --type TASK --priority HIGH --status TODO
-
-# Update a ticket's status
-kaizen ticket update Sensey <ticketId> --status IN_PROGRESS
-
-# Add a comment
-kaizen comment add Sensey <ticketId> --content "Working on this now"
-
-# List sprints
-kaizen sprint list Sensey
+# Or use flags for quick operations
+kaizen ticket create --title "Fix login bug" --type TASK --priority HIGH --status TODO
+kaizen ticket update SEN-42 --status IN_PROGRESS
 ```
+
+## Interactive Mode
+
+When you run a command **without required arguments**, the CLI enters interactive mode with prompts, numbered lists, and navigation.
+
+### Ticket list — browse backlog or sprints
+
+```bash
+kaizen ticket list
+```
+
+```
+Where to look?
+  1  Backlog
+  2  Sprint
+Select: 2
+
+Select a sprint:
+  1  Sprint 3            ACTIVE      Jun 15 – Jun 30
+  2  MCP Sprint 1        COMPLETED   Jun 03 – Jun 15
+Enter number (or 'q' to quit): 1
+
+Sprint: Sprint 3 (ACTIVE)
+
+KEY       TITLE                   STATUS        PRIORITY    ASSIGNEE
+SEN-40    Deploy pipeline          IN_PROGRESS   HIGH        Oktay Yilmaz
+SEN-41    API refactor            TODO          MEDIUM      Mert Demir
+
+Press 'b' to go back to sprint list, or 'q' to quit:
+```
+
+Combine with flags: `kaizen ticket list sprint --status IN_PROGRESS`
+
+### Ticket create — guided prompts
+
+```bash
+kaizen ticket create
+```
+
+```
+Title: Fix the login page crash
+Type:
+  1  TASK
+  2  INCIDENT
+Select: 1
+
+Priority:
+  1  LOWEST
+  2  LOW
+  3  MEDIUM
+  4  HIGH
+  5  HIGHEST
+Select: 4
+
+Status:
+  1  TODO
+  2  IN_PROGRESS
+  3  IN_REVIEW
+  4  DONE
+Select: 1
+
+Assignees? (y/n): y
+  1  Emir Akyuz (emir@sensey.io)
+  2  Oktay Yilmaz (oktay@sensey.io)
+Select (or 'd' when done): 1
+  Selected: Emir Akyuz
+Select (or 'd' when done, 'r' to remove last): d
+
+Created ticket SEN-44: Fix the login page crash
+```
+
+### Ticket update — browse, select, and modify
+
+```bash
+kaizen ticket update
+```
+
+Browses tickets interactively, lets you pick one, then choose which fields to update.
+
+Or update directly: `kaizen ticket update SEN-42 --status DONE`
+
+### Sprint management
+
+```bash
+kaizen sprint create         # Prompts for name, dates
+kaizen sprint start          # Shows PLANNED sprints to pick from
+kaizen sprint complete       # Shows ACTIVE sprints to pick from
+kaizen sprint link           # Pick sprint, then multi-select tickets
+```
+
+### Comments
+
+```bash
+kaizen comment add           # Browse tickets, pick one, type comment
+kaizen comment add SEN-42    # Add comment to specific ticket
+```
+
+## Flag-Based Usage (Scripting / Agents)
+
+All commands support `--flags` and `--json` for non-interactive use:
+
+```bash
+kaizen ticket create --title "Bug fix" --type TASK --priority HIGH --status TODO --json
+kaizen ticket update SEN-42 --status IN_PROGRESS --json
+kaizen sprint start "Sprint 3" --json
+kaizen comment add SEN-42 --content "Fixed in PR #123" --json
+```
+
+Interactive mode is **automatically disabled** when:
+- `--json` flag is set
+- stdin is not a terminal (pipes, CI)
 
 ## Authentication
 
@@ -77,16 +184,12 @@ kaizen sprint list Sensey
 kaizen login
 ```
 
-Prompts for username and password, performs a Keycloak password grant, and caches the access + refresh tokens. The CLI auto-refreshes tokens before they expire.
-
 ### Environment variables (CI / agents)
 
 | Variable | Description |
 |----------|-------------|
 | `KAIZEN_TOKEN` | Pre-obtained access token — used directly, no login needed |
-| `KAIZEN_USERNAME` + `KAIZEN_PASSWORD` | Used by `kaizen login` for non-interactive authentication (still requires running `kaizen login`) |
-
-`KAIZEN_TOKEN` takes precedence over username/password. Neither credentials nor tokens are ever printed in output.
+| `KAIZEN_USERNAME` + `KAIZEN_PASSWORD` | Used by `kaizen login` for non-interactive authentication |
 
 ### Logout
 
@@ -94,129 +197,97 @@ Prompts for username and password, performs a Keycloak password grant, and cache
 kaizen logout
 ```
 
-Clears stored tokens and local cache.
-
 ## Commands
-
-### Auth
-
-| Command | Description |
-|---------|-------------|
-| `kaizen login` | Authenticate with Keycloak |
-| `kaizen logout` | Clear stored tokens and cache |
-| `kaizen whoami` | Show authenticated user info |
-
-### Boards
-
-| Command | Description |
-|---------|-------------|
-| `kaizen board list [--refresh]` | List all boards (cached 30 min) |
-| `kaizen board get <board>` | Get board details by name or ID |
-| `kaizen board create --name <> --key <>` | Create a new board |
-| `kaizen board update <board> [--name] [--key] [--description]` | Update a board |
-| `kaizen board delete <board>` | Delete a board |
-| `kaizen board set-default <board>` | Set default board in config |
-| `kaizen board related <board>` | List related boards |
-| `kaizen board children add <board> --child-ids <ids>` | Add child boards |
-| `kaizen board restore <board>` | Restore a deleted board |
-
-Board names are **case-insensitive** and resolved to UUIDs automatically via cache.
 
 ### Tickets
 
 | Command | Description |
 |---------|-------------|
-| `kaizen ticket list [--board] [--status] [--assignee] [--label] [--search] [--sprint] [--backlog] [--page] [--amount] [--sort-by] [--sort-dir]` | List board tickets with filters |
-| `kaizen ticket all [--status] [--assignee] [--search] [--page] [--amount]` | List tickets across all boards |
-| `kaizen ticket mine [--status] [--search] [--page] [--amount]` | List tickets assigned to you |
-| `kaizen ticket get <board> <ticketId>` | Get a single ticket |
-| `kaizen ticket create --title <> --type <> --priority <> --status <> [--board] [--description] [--assignee] [--label] [--project] [--sprint] [--backlog] [--story-points] [--due-date]` | Create a ticket |
-| `kaizen ticket update <board> <ticketId> [--title] [--status] [--priority] [--type] [--assignee] [--label] [--story-points] [--due-date] [--percentage] [--sprint] [--backlog] [--project] [--description]` | Update ticket fields |
-| `kaizen ticket delete <board> <ticketId>` | Delete a ticket |
-| `kaizen ticket move <board> <ticketId> [--target-board] [--target-sprint] [--target-backlog]` | Move a ticket |
-| `kaizen ticket bulk-move <board> --tickets <ids> [--target-sprint] [--target-backlog]` | Move multiple tickets |
-| `kaizen ticket order <board> <ticketId> --order <n> [--sprint] [--backlog]` | Reorder a ticket |
-| `kaizen ticket restore <board> <ticketId>` | Restore a deleted ticket |
+| `kaizen ticket list [sprint\|sprintName]` | List tickets — interactive browse or specify sprint |
+| `kaizen ticket all` | List tickets across all boards |
+| `kaizen ticket mine` | List tickets assigned to you |
+| `kaizen ticket get [ticketKey]` | Get ticket details — browse or specify key |
+| `kaizen ticket create` | Create a ticket — interactive or with flags |
+| `kaizen ticket update [ticketKey]` | Update a ticket — browse or specify key |
+| `kaizen ticket delete [ticketKey]` | Delete a ticket (with confirmation) |
+| `kaizen ticket move [ticketKey]` | Move a ticket between boards/sprints |
+| `kaizen ticket restore [ticketKey]` | Restore a deleted ticket |
+| `kaizen ticket order [ticketKey]` | Reorder a ticket |
+| `kaizen ticket bulk-move` | Move multiple tickets at once |
+
+Ticket keys like `SEN-42` are resolved automatically — no UUIDs needed.
 
 **Ticket enums:**
 
 | Field | Values |
 |-------|--------|
 | `--type` | `TASK`, `INCIDENT` |
-| `--priority` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+| `--priority` (TASK) | `LOWEST`, `LOW`, `MEDIUM`, `HIGH`, `HIGHEST` |
+| `--priority` (INCIDENT) | `P1`, `P2`, `P3` |
 | `--status` | `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` |
-
-If neither `--sprint` nor `--backlog` is specified on create, the ticket is placed in the board's default backlog automatically.
 
 ### Sprints
 
 | Command | Description |
 |---------|-------------|
-| `kaizen sprint list [board] [--refresh]` | List sprints (cached 15 min) |
-| `kaizen sprint get <board> <sprintId>` | Get sprint details |
-| `kaizen sprint create <board> --name <> [--description] [--start-date] [--end-date]` | Create a sprint |
-| `kaizen sprint update <board> <sprintId> [--name] [--description] [--start-date] [--end-date]` | Update a sprint |
-| `kaizen sprint delete <board> <sprintId>` | Delete a sprint |
-| `kaizen sprint start <board> <sprintId>` | Start a sprint |
-| `kaizen sprint complete <board> <sprintId>` | Complete a sprint |
-| `kaizen sprint link <board> <sprintId> --tickets <ids>` | Link tickets to a sprint |
-| `kaizen sprint unlink <board> <sprintId> --tickets <ids>` | Unlink tickets from a sprint |
-| `kaizen sprint restore <board> <sprintId>` | Restore a deleted sprint |
+| `kaizen sprint list` | List sprints (cached 15 min) |
+| `kaizen sprint get [sprintName]` | Get sprint details |
+| `kaizen sprint create` | Create a sprint — interactive or with `--name` |
+| `kaizen sprint update [sprintName]` | Update a sprint |
+| `kaizen sprint start [sprintName]` | Start a sprint (shows PLANNED sprints) |
+| `kaizen sprint complete [sprintName]` | Complete a sprint (shows ACTIVE sprints) |
+| `kaizen sprint link [sprintName]` | Link tickets to a sprint |
+| `kaizen sprint unlink [sprintName]` | Unlink tickets from a sprint |
+| `kaizen sprint delete [sprintName]` | Delete a sprint (with confirmation) |
+| `kaizen sprint restore [sprintName]` | Restore a deleted sprint |
 
-Dates use `YYYY-MM-DD` format.
-
-### Backlogs
-
-| Command | Description |
-|---------|-------------|
-| `kaizen backlog get [board]` | View backlog with its tickets |
-| `kaizen backlog add-ticket <board> <ticketId>` | Add a ticket to the backlog |
-
-### Labels
-
-| Command | Description |
-|---------|-------------|
-| `kaizen label list [board] [--refresh]` | List labels (cached 30 min) |
-| `kaizen label create [board] --name <> [--color <>]` | Create a label |
-| `kaizen label update <board> <labelId> [--name] [--color]` | Update a label |
-| `kaizen label delete <board> <labelId>` | Delete a label |
-
-### Projects
-
-| Command | Description |
-|---------|-------------|
-| `kaizen project list [board]` | List projects |
-| `kaizen project get <board> <projectId>` | Get project details |
-| `kaizen project create [board] --name <> [--description] [--color]` | Create a project |
-| `kaizen project update <board> <projectId> [--name] [--description] [--color]` | Update a project |
-| `kaizen project delete <board> <projectId>` | Delete a project |
-
-### Members
-
-| Command | Description |
-|---------|-------------|
-| `kaizen member list [board] [--refresh]` | List board members (cached 15 min) |
-| `kaizen member add [board] --user-id <> --role <>` | Add a member |
-| `kaizen member update <board> <userId> --role <>` | Update member role |
-| `kaizen member remove <board> <userId>` | Remove a member |
-| `kaizen member specialties <board> <userId> --specialties <>` | Set member specialties |
+Sprint names are resolved automatically. Dates use `YYYY-MM-DD` format.
 
 ### Comments
 
 | Command | Description |
 |---------|-------------|
-| `kaizen comment list <board> <ticketId>` | List comments on a ticket |
-| `kaizen comment add <board> <ticketId> --content <>` | Add a comment |
-| `kaizen comment update <board> <ticketId> <commentId> --content <>` | Update a comment |
-| `kaizen comment delete <board> <ticketId> <commentId>` | Delete a comment |
+| `kaizen comment list [ticketKey]` | List comments — browse tickets or specify key |
+| `kaizen comment add [ticketKey]` | Add a comment |
+| `kaizen comment update [ticketKey]` | Update a comment (interactive comment picker) |
+| `kaizen comment delete [ticketKey]` | Delete a comment (with confirmation) |
 
-### Cache
+### Boards
 
 | Command | Description |
 |---------|-------------|
-| `kaizen cache clear` | Clear all cached data |
+| `kaizen board list` | List all boards (cached 30 min) |
+| `kaizen board get <board>` | Get board details |
+| `kaizen board create` | Create a new board |
+| `kaizen board update <board>` | Update a board |
+| `kaizen board delete <board>` | Delete a board |
+| `kaizen board set-default <board>` | Set default board in config |
 
-Use `--refresh` on any list command to bypass cache for that request.
+### Labels, Projects, Members
+
+| Command | Description |
+|---------|-------------|
+| `kaizen label list` | List labels |
+| `kaizen label create` | Create a label |
+| `kaizen project list` | List projects |
+| `kaizen project create` | Create a project |
+| `kaizen member list` | List board members |
+| `kaizen member add` | Add a member |
+
+### Backlogs
+
+| Command | Description |
+|---------|-------------|
+| `kaizen backlog get` | View backlog with tickets |
+
+### Other
+
+| Command | Description |
+|---------|-------------|
+| `kaizen login` | Authenticate with Keycloak |
+| `kaizen logout` | Clear stored tokens and cache |
+| `kaizen whoami` | Show authenticated user info |
+| `kaizen cache clear` | Clear all cached data |
 
 ## Configuration
 
@@ -229,130 +300,44 @@ Resolved in this order (highest priority first):
 5. **Stored credentials** (from `kaizen login`)
 6. **Defaults** (production URLs)
 
-### Config file example
+### Global flags
 
-```yaml
-# ~/.kaizen/config.yaml
-api-url: https://api.village.sensey.io
-issuer: https://keycloak.sensey.io/realms/sensey
-client-id: village-app
-client-secret: your-client-secret
-default-board: Sensey
-```
+| Flag | Description |
+|------|-------------|
+| `--board` | Board name (uses default if not set) |
+| `--json` | Output raw JSON (disables interactive mode) |
+| `--debug` | Log HTTP requests (tokens redacted) |
+| `--dev` | Use localhost URLs |
 
 ### Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `KAIZEN_API_URL` | Kaizen API base URL |
+| `KAIZEN_API_URL` | API base URL |
 | `KAIZEN_KEYCLOAK_ISSUER` | Keycloak issuer URL |
 | `KAIZEN_CLIENT_ID` | Keycloak client ID |
-| `KAIZEN_CLIENT_SECRET` | Keycloak client secret (preferred way to provide secrets) |
+| `KAIZEN_CLIENT_SECRET` | Client secret |
 | `KAIZEN_ORG_ID` | Organization ID |
 | `KAIZEN_DEFAULT_BOARD` | Default board name |
-| `KAIZEN_TOKEN` | Pre-obtained access token (skips login) |
-| `KAIZEN_USERNAME` | Username for non-interactive `kaizen login` |
-| `KAIZEN_PASSWORD` | Password for non-interactive `kaizen login` |
-
-### Global flags
-
-| Flag | Env var | Default |
-|------|---------|---------|
-| `--api-url` | `KAIZEN_API_URL` | `https://api.village.sensey.io` |
-| `--issuer` | `KAIZEN_KEYCLOAK_ISSUER` | `https://keycloak.sensey.io/realms/sensey` |
-| `--client-id` | `KAIZEN_CLIENT_ID` | `village-app` |
-| `--org` | `KAIZEN_ORG_ID` | (from login) |
-| `--board` | `KAIZEN_DEFAULT_BOARD` | (from config) |
-| `--json` | — | Output raw JSON |
-| `--dev` | — | Use localhost URLs |
-| `--debug` | — | Log HTTP requests (tokens redacted) |
-
-`KAIZEN_CLIENT_SECRET` is configured via environment variable or config file only — there is no CLI flag for it.
-
-### Dev mode
-
-Pass `--dev` to target your local environment:
-
-```bash
-kaizen --dev login
-kaizen --dev ticket list
-```
-
-Dev mode defaults: API `http://localhost:8080`, Keycloak `http://localhost:8086/realms/sensey`.
-
-## JSON Output
-
-Pass `--json` to any command for machine-readable output. Most commands output the raw API envelope (`{"data": ...}`):
-
-```bash
-# Get ticket as JSON
-kaizen ticket get Sensey <ticketId> --json
-
-# Pipe to jq — note the {"data": ...} wrapper
-kaizen ticket list --json | jq '.data.content[].key'
-
-# Get a single ticket field
-kaizen ticket get Sensey <ticketId> --json | jq '.data.title'
-
-# Use in scripts
-TICKET_ID=$(kaizen ticket create --title "Test" --type TASK --priority LOW --status TODO --json | jq -r '.data.id')
-```
+| `KAIZEN_TOKEN` | Pre-obtained access token |
+| `KAIZEN_USERNAME` / `KAIZEN_PASSWORD` | Non-interactive login |
 
 ### Exit codes
 
 | Code | Meaning |
 |------|---------|
 | `0` | Success |
-| `1` | Error (auth, API, validation) |
+| `1` | Error |
 | `2` | Not found (404) |
 | `3` | Permission denied (403) |
 
-## Caching
-
-The CLI caches metadata to `~/.kaizen/cache.json` to minimize API calls:
-
-| Resource | TTL | Cache key |
-|----------|-----|-----------|
-| Boards | 30 min | `boards` |
-| Members | 15 min | `members:{boardId}` |
-| Labels | 30 min | `labels:{boardId}` |
-| Sprints | 15 min | `sprints:{boardId}` |
-
-Tickets and backlogs are **never cached** — always fetched live.
-
-Board names (e.g., "Sensey") are resolved to UUIDs via the board cache, so you rarely need to type a UUID.
-
-## Security
-
-- **Token storage**: Tokens are stored in the macOS Keychain, or `~/.kaizen/credentials` with `0600` permissions on Linux.
-- **No password storage**: Passwords are never stored — only access and refresh tokens are persisted.
-- **Client secrets**: Provide client secrets via the `KAIZEN_CLIENT_SECRET` environment variable or config file, never as a CLI flag.
-- **Debug mode**: Authorization headers are redacted in `--debug` output.
-
-## Examples
+## Updating
 
 ```bash
-# List all boards
-kaizen board list
-
-# Create a high-priority ticket assigned to someone
-kaizen ticket create --title "Critical: API timeout" --type INCIDENT --priority CRITICAL --status TODO --assignee <userId>
-
-# Search for tickets
-kaizen ticket list --search "invoice" --status TODO,IN_PROGRESS
-
-# Create a sprint and link tickets
-kaizen sprint create Sensey --name "Sprint 14" --start-date 2026-04-20 --end-date 2026-05-03
-kaizen sprint link Sensey <sprintId> --tickets <id1>,<id2>,<id3>
-kaizen sprint start Sensey <sprintId>
-
-# Check who's on a board
-kaizen member list Sensey
-
-# View and comment on a ticket
-kaizen ticket get Sensey <ticketId>
-kaizen comment add Sensey <ticketId> --content "Reviewed — looks good, merging now"
+brew upgrade kaizen-cli
 ```
+
+The CLI will notify you when a new version is available.
 
 ## Development
 
@@ -361,7 +346,6 @@ make build       # Build to ./bin/kaizen
 make install     # Install to $GOPATH/bin
 make test        # Run tests
 make lint        # Run golangci-lint
-make dev         # Build with -dev version suffix
 make clean       # Remove build artifacts
 ```
 

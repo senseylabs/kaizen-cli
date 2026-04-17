@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"github.com/senseylabs/kaizen-cli/internal/cache"
 	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // ---------------------------------------------------------------------------
@@ -30,9 +32,15 @@ var ticketCmd = &cobra.Command{
 // ---------------------------------------------------------------------------
 
 var ticketListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List tickets on a board",
-	RunE:  runTicketList,
+	Use:   "list [sprint|<sprint-name>]",
+	Short: "List tickets on a board (backlog by default, or specify sprint)",
+	Long: `List tickets on a board.
+
+Without arguments, lists backlog tickets.
+With "sprint", lists tickets from the active sprint (or latest if none active).
+With a sprint name (e.g. "Sprint 1"), lists tickets from that sprint.`,
+	Args: cobra.ArbitraryArgs,
+	RunE: runTicketList,
 }
 
 func runTicketList(cmd *cobra.Command, args []string) error {
@@ -42,15 +50,7 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardName, _ := cmd.Flags().GetString("board")
-	if boardName == "" {
-		boardName = cfgDefaultBoard
-	}
-	if boardName == "" {
-		return fmt.Errorf("board is required. Use --board or set a default board")
-	}
-
-	boardID, err := cache.ResolveBoard(boardName, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -75,12 +75,35 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Flags().GetString("search"); v != "" {
 		params.Set("search", v)
 	}
-	if v, _ := cmd.Flags().GetString("sprint"); v != "" {
-		params.Set("sprintId", v)
+
+	// Resolve sprint/backlog from positional args
+	header := "Backlog"
+	sprintArg := strings.TrimSpace(strings.Join(args, " "))
+
+	if sprintArg == "" {
+		if !cfgJSON && isInteractive() {
+			// Interactive mode: ask where to look
+			return runInteractiveTicketList(boardID, params, c)
+		}
+		// Non-interactive fallback: use backlog
+		backlogID, resolveErr := resolveBacklogID(boardID, c)
+		if resolveErr != nil {
+			return fmt.Errorf("failed to resolve backlog: %w", resolveErr)
+		}
+		params.Set("backlogId", backlogID)
+	} else if strings.EqualFold(sprintArg, "sprint") && !cfgJSON {
+		// Interactive sprint picker mode
+		return runInteractiveSprintPicker(boardID, params, c)
+	} else {
+		// Args present → resolve sprint
+		sprintID, displayName, resolveErr := resolveSprint(boardID, sprintArg, c)
+		if resolveErr != nil {
+			return fmt.Errorf("failed to resolve sprint: %w", resolveErr)
+		}
+		params.Set("sprintId", sprintID)
+		header = fmt.Sprintf("Sprint: %s", displayName)
 	}
-	if v, _ := cmd.Flags().GetString("backlog"); v != "" {
-		params.Set("backlogId", v)
-	}
+
 	page, _ := cmd.Flags().GetInt("page")
 	params.Set("page", strconv.Itoa(page))
 	amount, _ := cmd.Flags().GetInt("amount")
@@ -92,6 +115,11 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 		params.Set("sortDirection", v)
 	}
 
+	return fetchAndPrintTickets(boardID, header, params, c)
+}
+
+// fetchAndPrintTickets fetches tickets for a board with the given params and prints them as a table.
+func fetchAndPrintTickets(boardID string, header string, params url.Values, c *client.KaizenClient) error {
 	path := fmt.Sprintf("/kaizen/boards/%s/tickets?%s", boardID, params.Encode())
 	body, err := c.Get(path)
 	if err != nil {
@@ -107,6 +135,10 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return fmt.Errorf("failed to parse tickets response: %w", err)
 	}
+
+	// Print context header
+	fmt.Println(header)
+	fmt.Println()
 
 	if len(resp.Data.Content) == 0 {
 		fmt.Println("No tickets found.")
@@ -132,6 +164,131 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 		len(resp.Data.Content), resp.Data.TotalElements, resp.Data.Number+1, resp.Data.TotalPages)
 
 	return nil
+}
+
+// runInteractiveTicketList runs the top-level interactive menu for "kaizen ticket list" (no args).
+// It shows a "Where to look?" prompt and delegates to backlog or sprint flows.
+func runInteractiveTicketList(boardID string, baseParams url.Values, c *client.KaizenClient) error {
+	for {
+		idx, err := promptSingleSelect("Where to look?", []string{"Backlog", "Sprint"})
+		if err != nil {
+			return nil // user cancelled
+		}
+
+		if idx == 0 {
+			// Backlog
+			backlogID, resolveErr := resolveBacklogID(boardID, c)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			ticketParams := cloneParams(baseParams)
+			ticketParams.Set("backlogId", backlogID)
+			setDefaultPagination(ticketParams)
+
+			if printErr := fetchAndPrintTickets(boardID, "Backlog", ticketParams, c); printErr != nil {
+				return printErr
+			}
+
+			action := promptPostTicketAction()
+			if action != "back" {
+				return nil
+			}
+			_, _ = fmt.Fprintf(os.Stdout, "\033[2J\033[H")
+		} else {
+			// Sprint — delegate to sprint picker with back-to-menu support
+			sprints, fetchErr := fetchSprints(boardID, c)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch sprints: %w", fetchErr)
+			}
+			if len(sprints) == 0 {
+				fmt.Println("No sprints found.")
+				continue
+			}
+
+		sprintLoop:
+			for {
+				sprintID, displayName, selectErr := promptSprintSelection(sprints)
+				if selectErr != nil {
+					break sprintLoop // back to "Where to look?"
+				}
+
+				ticketParams := cloneParams(baseParams)
+				ticketParams.Set("sprintId", sprintID)
+				setDefaultPagination(ticketParams)
+
+				header := fmt.Sprintf("Sprint: %s", displayName)
+				if printErr := fetchAndPrintTickets(boardID, header, ticketParams, c); printErr != nil {
+					return printErr
+				}
+
+				action := promptPostTicketAction()
+				if action != "back" {
+					return nil
+				}
+				// Clear screen and show sprint list again
+				_, _ = fmt.Fprintf(os.Stdout, "\033[2J\033[H")
+			}
+
+			// Clear screen and show "Where to look?" again
+			_, _ = fmt.Fprintf(os.Stdout, "\033[2J\033[H")
+		}
+	}
+}
+
+// runInteractiveSprintPicker runs the interactive sprint selection loop.
+// It shows a list of sprints, lets the user pick one, displays tickets, and allows going back.
+func runInteractiveSprintPicker(boardID string, baseParams url.Values, c *client.KaizenClient) error {
+	sprints, err := fetchSprints(boardID, c)
+	if err != nil {
+		return fmt.Errorf("failed to fetch sprints: %w", err)
+	}
+	if len(sprints) == 0 {
+		fmt.Println("No sprints found on this board.")
+		return nil
+	}
+
+	for {
+		sprintID, displayName, selectErr := promptSprintSelection(sprints)
+		if selectErr != nil {
+			return nil // user cancelled, exit cleanly
+		}
+
+		ticketParams := cloneParams(baseParams)
+		ticketParams.Set("sprintId", sprintID)
+		setDefaultPagination(ticketParams)
+
+		header := fmt.Sprintf("Sprint: %s", displayName)
+		if printErr := fetchAndPrintTickets(boardID, header, ticketParams, c); printErr != nil {
+			return printErr
+		}
+
+		action := promptPostTicketAction()
+		if action != "back" {
+			return nil
+		}
+
+		// Clear screen and show sprint list again
+		_, _ = fmt.Fprintf(os.Stdout, "\033[2J\033[H")
+	}
+}
+
+// cloneParams creates a shallow copy of url.Values.
+func cloneParams(src url.Values) url.Values {
+	dst := url.Values{}
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+// setDefaultPagination sets page and amount defaults if not already present.
+func setDefaultPagination(params url.Values) {
+	if params.Get("page") == "" {
+		params.Set("page", "0")
+	}
+	if params.Get("amount") == "" {
+		params.Set("amount", "100")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -300,9 +457,9 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var ticketGetCmd = &cobra.Command{
-	Use:   "get <board> <ticketId>",
-	Short: "Get a ticket by ID",
-	Args:  cobra.ExactArgs(2),
+	Use:   "get [ticketKey]",
+	Short: "Get a ticket by key (e.g. SEN-42) or browse interactively",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTicketGet,
 }
 
@@ -313,12 +470,30 @@ func runTicketGet(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s", boardID, args[1])
+	var ticketID string
+
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s", boardID, ticketID)
 	body, err := c.Get(path)
 	if err != nil {
 		return fmt.Errorf("failed to get ticket: %w", err)
@@ -395,23 +570,34 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardName, _ := cmd.Flags().GetString("board")
-	if boardName == "" {
-		boardName = cfgDefaultBoard
-	}
-	if boardName == "" {
-		return fmt.Errorf("board is required. Use --board or set a default board")
-	}
-
-	boardID, err := cache.ResolveBoard(boardName, c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
 	title, _ := cmd.Flags().GetString("title")
+
+	// If title is not provided and we're in an interactive terminal, enter interactive mode
+	if title == "" && isInteractive() && term.IsTerminal(int(os.Stdout.Fd())) {
+		return runTicketCreateInteractive(cmd, boardID, c)
+	}
+
+	// Non-interactive: require flags
+	if title == "" {
+		return fmt.Errorf("--title is required (or run without flags for interactive mode)")
+	}
 	ticketType, _ := cmd.Flags().GetString("type")
+	if ticketType == "" {
+		return fmt.Errorf("--type is required (or run without flags for interactive mode)")
+	}
 	priority, _ := cmd.Flags().GetString("priority")
+	if priority == "" {
+		return fmt.Errorf("--priority is required (or run without flags for interactive mode)")
+	}
 	status, _ := cmd.Flags().GetString("status")
+	if status == "" {
+		return fmt.Errorf("--status is required (or run without flags for interactive mode)")
+	}
 
 	req := client.TicketCreateRequest{
 		Title:    title,
@@ -441,7 +627,11 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 
 	// Sprint/backlog placement
 	if v, _ := cmd.Flags().GetString("sprint"); v != "" {
-		req.SprintID = &v
+		sprintID, _, resolveErr := resolveSprint(boardID, v, c)
+		if resolveErr != nil {
+			return fmt.Errorf("failed to resolve sprint: %w", resolveErr)
+		}
+		req.SprintID = &sprintID
 	}
 	if v, _ := cmd.Flags().GetString("backlog"); v != "" {
 		req.BacklogID = &v
@@ -449,7 +639,7 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 
 	// Auto-resolve backlog if neither sprint nor backlog specified
 	if req.SprintID == nil && req.BacklogID == nil {
-		backlogID, resolveErr := resolveBacklog(boardID, c)
+		backlogID, resolveErr := resolveBacklogID(boardID, c)
 		if resolveErr != nil {
 			return fmt.Errorf("failed to auto-resolve backlog for board: %w. Use --backlog or --sprint explicitly", resolveErr)
 		}
@@ -458,6 +648,11 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	return submitTicketCreate(boardID, req, c)
+}
+
+// submitTicketCreate sends the create request and prints the result.
+func submitTicketCreate(boardID string, req client.TicketCreateRequest, c *client.KaizenClient) error {
 	path := fmt.Sprintf("/kaizen/boards/%s/tickets", boardID)
 	body, err := c.Post(path, req)
 	if err != nil {
@@ -474,24 +669,225 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse ticket response: %w", err)
 	}
 
-	fmt.Printf("Created ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
+	fmt.Printf("\nCreated ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
 	return nil
 }
 
-// resolveBacklog fetches the board's backlog ID.
-func resolveBacklog(boardID string, c *client.KaizenClient) (string, error) {
-	path := fmt.Sprintf("/kaizen/boards/%s/backlog", boardID)
-	body, err := c.Get(path)
+// runTicketCreateInteractive prompts the user for all ticket fields interactively.
+func runTicketCreateInteractive(_ *cobra.Command, boardID string, c *client.KaizenClient) error {
+	fmt.Println()
+
+	// Title (required)
+	title, err := promptTextRequired("Title")
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	var resp client.APIResponse[client.Backlog]
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+	req := client.TicketCreateRequest{
+		Title: title,
 	}
 
-	return resp.Data.ID, nil
+	// Description (optional)
+	wantDesc, err := promptYesNo("Description (optional)")
+	if err != nil {
+		return err
+	}
+	if wantDesc {
+		desc, descErr := promptText("Description")
+		if descErr != nil {
+			return descErr
+		}
+		if desc != "" {
+			req.Description = &desc
+		}
+	}
+
+	// Type (required)
+	typeOptions := []string{"TASK", "INCIDENT"}
+	typeIdx, err := promptSingleSelect("Type", typeOptions)
+	if err != nil {
+		return err
+	}
+	req.Type = typeOptions[typeIdx]
+
+	// Priority (required) — depends on ticket type
+	var priorityOptions []string
+	if req.Type == "INCIDENT" {
+		priorityOptions = []string{"P1", "P2", "P3"}
+	} else {
+		priorityOptions = []string{"LOWEST", "LOW", "MEDIUM", "HIGH", "HIGHEST"}
+	}
+	priorityIdx, err := promptSingleSelect("Priority", priorityOptions)
+	if err != nil {
+		return err
+	}
+	req.Priority = priorityOptions[priorityIdx]
+
+	// Status (required)
+	statusOptions := []string{"TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"}
+	statusIdx, err := promptSingleSelect("Status", statusOptions)
+	if err != nil {
+		return err
+	}
+	req.Status = statusOptions[statusIdx]
+
+	// Placement: Backlog or Sprint
+	placementOptions := []string{"Backlog", "Sprint"}
+	placementIdx, err := promptSingleSelect("Placement", placementOptions)
+	if err != nil {
+		return err
+	}
+	if placementIdx == 1 {
+		// Sprint — use interactive sprint picker
+		sprints, sprintErr := fetchSprints(boardID, c)
+		if sprintErr != nil {
+			return fmt.Errorf("failed to fetch sprints: %w", sprintErr)
+		}
+		if len(sprints) == 0 {
+			_, _ = fmt.Fprintf(os.Stdout, "No sprints found. Using backlog instead.\n")
+			backlogID, resolveErr := resolveBacklogID(boardID, c)
+			if resolveErr != nil {
+				return fmt.Errorf("failed to resolve backlog: %w", resolveErr)
+			}
+			req.BacklogID = &backlogID
+		} else {
+			sprintID, _, selectErr := promptSprintSelection(sprints)
+			if selectErr != nil {
+				return selectErr
+			}
+			req.SprintID = &sprintID
+		}
+	} else {
+		backlogID, resolveErr := resolveBacklogID(boardID, c)
+		if resolveErr != nil {
+			return fmt.Errorf("failed to resolve backlog: %w", resolveErr)
+		}
+		req.BacklogID = &backlogID
+	}
+
+	// Assignees (optional)
+	wantAssignees, err := promptYesNo("Assignees")
+	if err != nil {
+		return err
+	}
+	if wantAssignees {
+		members, fetchErr := fetchMembers(boardID, c)
+		if fetchErr != nil {
+			return fmt.Errorf("failed to fetch members: %w", fetchErr)
+		}
+		if len(members) == 0 {
+			_, _ = fmt.Fprintf(os.Stdout, "  No members found on this board.\n")
+		} else {
+			memberOptions := make([]SelectOption, len(members))
+			for i, m := range members {
+				memberOptions[i] = SelectOption{
+					Display: fmt.Sprintf("%s %s (%s)", m.FirstName, m.LastName, m.Email),
+					Value:   m.UserID,
+				}
+			}
+			assigneeIDs, selectErr := promptMultiSelectWithValues("Assignees", memberOptions)
+			if selectErr != nil {
+				return selectErr
+			}
+			if len(assigneeIDs) > 0 {
+				req.AssigneeIDs = assigneeIDs
+			}
+		}
+	}
+
+	// Labels (optional)
+	wantLabels, err := promptYesNo("Labels")
+	if err != nil {
+		return err
+	}
+	if wantLabels {
+		labels, fetchErr := fetchLabels(boardID, c)
+		if fetchErr != nil {
+			return fmt.Errorf("failed to fetch labels: %w", fetchErr)
+		}
+		if len(labels) == 0 {
+			_, _ = fmt.Fprintf(os.Stdout, "  No labels found on this board.\n")
+		} else {
+			labelOptions := make([]SelectOption, len(labels))
+			for i, l := range labels {
+				display := l.Name
+				if l.Color != nil {
+					display = fmt.Sprintf("%s (%s)", l.Name, *l.Color)
+				}
+				labelOptions[i] = SelectOption{
+					Display: display,
+					Value:   l.ID,
+				}
+			}
+			labelIDs, selectErr := promptMultiSelectWithValues("Labels", labelOptions)
+			if selectErr != nil {
+				return selectErr
+			}
+			if len(labelIDs) > 0 {
+				req.LabelIDs = labelIDs
+			}
+		}
+	}
+
+	// Project (optional)
+	wantProject, err := promptYesNo("Project")
+	if err != nil {
+		return err
+	}
+	if wantProject {
+		projects, fetchErr := fetchProjects(boardID, c)
+		if fetchErr != nil {
+			return fmt.Errorf("failed to fetch projects: %w", fetchErr)
+		}
+		if len(projects) == 0 {
+			_, _ = fmt.Fprintf(os.Stdout, "  No projects found on this board.\n")
+		} else {
+			projectOptions := make([]SelectOption, len(projects))
+			for i, p := range projects {
+				projectOptions[i] = SelectOption{
+					Display: p.Name,
+					Value:   p.ID,
+				}
+			}
+			projectID, selectErr := promptSingleSelectWithValues("Project", projectOptions)
+			if selectErr != nil {
+				return selectErr
+			}
+			req.ProjectID = &projectID
+		}
+	}
+
+	// Story Points (optional)
+	wantPoints, err := promptYesNo("Story Points")
+	if err != nil {
+		return err
+	}
+	if wantPoints {
+		points, pointsErr := promptInt("Story Points")
+		if pointsErr != nil {
+			return pointsErr
+		}
+		if points > 0 {
+			req.Weight = &points
+		}
+	}
+
+	// Due Date (optional)
+	wantDueDate, err := promptYesNo("Due Date")
+	if err != nil {
+		return err
+	}
+	if wantDueDate {
+		dueDate, dateErr := promptDate("Due Date")
+		if dateErr != nil {
+			return dateErr
+		}
+		if dueDate != "" {
+			req.DueDate = &dueDate
+		}
+	}
+
+	return submitTicketCreate(boardID, req, c)
 }
 
 // ---------------------------------------------------------------------------
@@ -499,9 +895,9 @@ func resolveBacklog(boardID string, c *client.KaizenClient) (string, error) {
 // ---------------------------------------------------------------------------
 
 var ticketUpdateCmd = &cobra.Command{
-	Use:   "update <board> <ticketId>",
-	Short: "Update a ticket",
-	Args:  cobra.ExactArgs(2),
+	Use:   "update [ticketKey]",
+	Short: "Update a ticket by key (e.g. SEN-42) or browse interactively",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTicketUpdate,
 }
 
@@ -512,9 +908,27 @@ func runTicketUpdate(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
+	}
+
+	var ticketID string
+
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
 	}
 
 	req := client.TicketUpdateRequest{}
@@ -547,7 +961,11 @@ func runTicketUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if cmd.Flags().Changed("sprint") {
 		v, _ := cmd.Flags().GetString("sprint")
-		req.SprintID = &v
+		sprintID, _, resolveErr := resolveSprint(boardID, v, c)
+		if resolveErr != nil {
+			return fmt.Errorf("failed to resolve sprint: %w", resolveErr)
+		}
+		req.SprintID = &sprintID
 		hasChanges = true
 	}
 	if cmd.Flags().Changed("backlog") {
@@ -586,11 +1004,20 @@ func runTicketUpdate(cmd *cobra.Command, args []string) error {
 		hasChanges = true
 	}
 
+	// If no flags were changed and we're in an interactive terminal, enter interactive mode
 	if !hasChanges {
+		if isInteractive() && term.IsTerminal(int(os.Stdout.Fd())) {
+			return runTicketUpdateInteractive(boardID, ticketID, c)
+		}
 		return fmt.Errorf("no fields specified to update")
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s", boardID, args[1])
+	return submitTicketUpdate(boardID, ticketID, req, c)
+}
+
+// submitTicketUpdate sends the update request and prints the result.
+func submitTicketUpdate(boardID string, ticketID string, req client.TicketUpdateRequest, c *client.KaizenClient) error {
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s", boardID, ticketID)
 	body, err := c.Put(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to update ticket: %w", err)
@@ -606,8 +1033,260 @@ func runTicketUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse ticket response: %w", err)
 	}
 
-	fmt.Printf("Updated ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
+	fmt.Printf("\nUpdated ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
 	return nil
+}
+
+// runTicketUpdateInteractive prompts the user to select which fields to update.
+func runTicketUpdateInteractive(boardID string, ticketID string, c *client.KaizenClient) error {
+	fmt.Println()
+
+	updateFields := []string{
+		"Title",
+		"Description",
+		"Type",
+		"Status",
+		"Priority",
+		"Assignees",
+		"Labels",
+		"Sprint/Backlog",
+		"Project",
+		"Story Points",
+		"Due Date",
+		"Percentage",
+	}
+
+	req := client.TicketUpdateRequest{}
+	hasChanges := false
+
+	for {
+		label := "What would you like to update?"
+		if hasChanges {
+			label = "What else would you like to update?"
+		}
+
+		// Use multi-select style: pick one at a time, 'd' when done
+		cyan := promptColor("\033[36m")
+		dim := promptColor("\033[90m")
+		reset := promptReset()
+
+		_, _ = fmt.Fprintf(os.Stdout, "%s%s%s\n", cyan, label, reset)
+		for i, f := range updateFields {
+			_, _ = fmt.Fprintf(os.Stdout, "  %s%d%s  %s\n", dim, i+1, reset, f)
+		}
+
+		reader := bufio.NewReader(os.Stdin)
+		_, _ = fmt.Fprintf(os.Stdout, "Select (or 'd' when done): ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read input: %w", err)
+		}
+		input = strings.TrimSpace(input)
+
+		if strings.EqualFold(input, "d") {
+			break
+		}
+
+		num, parseErr := strconv.Atoi(input)
+		if parseErr != nil || num < 1 || num > len(updateFields) {
+			_, _ = fmt.Fprintf(os.Stdout, "Invalid selection. Enter a number between 1 and %d.\n", len(updateFields))
+			continue
+		}
+
+		switch num {
+		case 1: // Title
+			val, promptErr := promptTextRequired("Title")
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Title = &val
+			hasChanges = true
+
+		case 2: // Description
+			val, promptErr := promptText("Description")
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Description = &val
+			hasChanges = true
+
+		case 3: // Type
+			typeOptions := []string{"TASK", "INCIDENT"}
+			idx, promptErr := promptSingleSelect("Type", typeOptions)
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Type = &typeOptions[idx]
+			hasChanges = true
+
+		case 4: // Status
+			statusOptions := []string{"TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"}
+			idx, promptErr := promptSingleSelect("Status", statusOptions)
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Status = &statusOptions[idx]
+			hasChanges = true
+
+		case 5: // Priority
+			// Ask for ticket type first to show correct priority options
+			typeForPriority := []string{"TASK", "INCIDENT"}
+			typeIdx, typeErr := promptSingleSelect("What is the ticket type?", typeForPriority)
+			if typeErr != nil {
+				return typeErr
+			}
+			var priorityOptions []string
+			if typeForPriority[typeIdx] == "INCIDENT" {
+				priorityOptions = []string{"P1", "P2", "P3"}
+			} else {
+				priorityOptions = []string{"LOWEST", "LOW", "MEDIUM", "HIGH", "HIGHEST"}
+			}
+			idx, promptErr := promptSingleSelect("Priority", priorityOptions)
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Priority = &priorityOptions[idx]
+			hasChanges = true
+
+		case 6: // Assignees
+			members, fetchErr := fetchMembers(boardID, c)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch members: %w", fetchErr)
+			}
+			if len(members) == 0 {
+				_, _ = fmt.Fprintf(os.Stdout, "  No members found on this board.\n")
+			} else {
+				memberOptions := make([]SelectOption, len(members))
+				for i, m := range members {
+					memberOptions[i] = SelectOption{
+						Display: fmt.Sprintf("%s %s (%s)", m.FirstName, m.LastName, m.Email),
+						Value:   m.UserID,
+					}
+				}
+				assigneeIDs, selectErr := promptMultiSelectWithValues("Assignees", memberOptions)
+				if selectErr != nil {
+					return selectErr
+				}
+				req.AssigneeIDs = assigneeIDs
+				hasChanges = true
+			}
+
+		case 7: // Labels
+			labels, fetchErr := fetchLabels(boardID, c)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch labels: %w", fetchErr)
+			}
+			if len(labels) == 0 {
+				_, _ = fmt.Fprintf(os.Stdout, "  No labels found on this board.\n")
+			} else {
+				labelOptions := make([]SelectOption, len(labels))
+				for i, l := range labels {
+					display := l.Name
+					if l.Color != nil {
+						display = fmt.Sprintf("%s (%s)", l.Name, *l.Color)
+					}
+					labelOptions[i] = SelectOption{
+						Display: display,
+						Value:   l.ID,
+					}
+				}
+				labelIDs, selectErr := promptMultiSelectWithValues("Labels", labelOptions)
+				if selectErr != nil {
+					return selectErr
+				}
+				req.LabelIDs = labelIDs
+				hasChanges = true
+			}
+
+		case 8: // Sprint/Backlog
+			placementOptions := []string{"Backlog", "Sprint"}
+			placementIdx, promptErr := promptSingleSelect("Placement", placementOptions)
+			if promptErr != nil {
+				return promptErr
+			}
+			if placementIdx == 1 {
+				sprints, sprintErr := fetchSprints(boardID, c)
+				if sprintErr != nil {
+					return fmt.Errorf("failed to fetch sprints: %w", sprintErr)
+				}
+				if len(sprints) == 0 {
+					_, _ = fmt.Fprintf(os.Stdout, "  No sprints found.\n")
+				} else {
+					sprintID, _, selectErr := promptSprintSelection(sprints)
+					if selectErr != nil {
+						return selectErr
+					}
+					req.SprintID = &sprintID
+					hasChanges = true
+				}
+			} else {
+				backlogID, resolveErr := resolveBacklogID(boardID, c)
+				if resolveErr != nil {
+					return fmt.Errorf("failed to resolve backlog: %w", resolveErr)
+				}
+				req.BacklogID = &backlogID
+				hasChanges = true
+			}
+
+		case 9: // Project
+			projects, fetchErr := fetchProjects(boardID, c)
+			if fetchErr != nil {
+				return fmt.Errorf("failed to fetch projects: %w", fetchErr)
+			}
+			if len(projects) == 0 {
+				_, _ = fmt.Fprintf(os.Stdout, "  No projects found on this board.\n")
+			} else {
+				projectOptions := make([]SelectOption, len(projects))
+				for i, p := range projects {
+					projectOptions[i] = SelectOption{
+						Display: p.Name,
+						Value:   p.ID,
+					}
+				}
+				projectID, selectErr := promptSingleSelectWithValues("Project", projectOptions)
+				if selectErr != nil {
+					return selectErr
+				}
+				req.ProjectID = &projectID
+				hasChanges = true
+			}
+
+		case 10: // Story Points
+			points, promptErr := promptInt("Story Points")
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Weight = &points
+			hasChanges = true
+
+		case 11: // Due Date
+			dueDate, promptErr := promptDate("Due Date")
+			if promptErr != nil {
+				return promptErr
+			}
+			if dueDate != "" {
+				req.DueDate = &dueDate
+				hasChanges = true
+			}
+
+		case 12: // Percentage
+			pct, promptErr := promptInt("Percentage")
+			if promptErr != nil {
+				return promptErr
+			}
+			req.Percentage = &pct
+			hasChanges = true
+		}
+
+		fmt.Println()
+	}
+
+	if !hasChanges {
+		fmt.Println("No changes selected.")
+		return nil
+	}
+
+	return submitTicketUpdate(boardID, ticketID, req, c)
 }
 
 // ---------------------------------------------------------------------------
@@ -615,9 +1294,9 @@ func runTicketUpdate(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var ticketDeleteCmd = &cobra.Command{
-	Use:   "delete <board> <ticketId>",
-	Short: "Delete a ticket",
-	Args:  cobra.ExactArgs(2),
+	Use:   "delete [ticketKey]",
+	Short: "Delete a ticket by key (e.g. SEN-42) or browse interactively",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTicketDelete,
 }
 
@@ -628,18 +1307,47 @@ func runTicketDelete(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s", boardID, args[1])
+	var ticketID string
+	ticketDisplay := ""
+
+	if len(args) > 0 {
+		ticketDisplay = args[0]
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+		ticketDisplay = ticketID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
+	if isInteractive() {
+		confirmed, _ := promptYesNo(fmt.Sprintf("Delete ticket %s", ticketDisplay))
+		if !confirmed {
+			fmt.Println("Cancelled.")
+			return nil
+		}
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s", boardID, ticketID)
 	_, err = c.Delete(path)
 	if err != nil {
 		return fmt.Errorf("failed to delete ticket: %w", err)
 	}
 
-	fmt.Printf("Deleted ticket %s\n", args[1])
+	fmt.Printf("Deleted ticket %s\n", ticketDisplay)
 	return nil
 }
 
@@ -648,9 +1356,9 @@ func runTicketDelete(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var ticketRestoreCmd = &cobra.Command{
-	Use:   "restore <board> <ticketId>",
-	Short: "Restore a deleted ticket",
-	Args:  cobra.ExactArgs(2),
+	Use:   "restore [ticketKey]",
+	Short: "Restore a deleted ticket by key (e.g. SEN-42) or browse interactively",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTicketRestore,
 }
 
@@ -661,18 +1369,36 @@ func runTicketRestore(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/restore", boardID, args[1])
+	var ticketID string
+
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
+	}
+
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/restore", boardID, ticketID)
 	_, err = c.Post(path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to restore ticket: %w", err)
 	}
 
-	fmt.Printf("Restored ticket %s\n", args[1])
+	fmt.Printf("Restored ticket %s\n", ticketID)
 	return nil
 }
 
@@ -681,9 +1407,9 @@ func runTicketRestore(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var ticketMoveCmd = &cobra.Command{
-	Use:   "move <board> <ticketId>",
+	Use:   "move [ticketKey]",
 	Short: "Move a ticket to another board, sprint, or backlog",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTicketMove,
 }
 
@@ -694,9 +1420,27 @@ func runTicketMove(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
+	}
+
+	var ticketID string
+
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
 	}
 
 	req := client.TicketMoveRequest{}
@@ -714,13 +1458,13 @@ func runTicketMove(cmd *cobra.Command, args []string) error {
 		req.TargetBacklogID = &v
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/move", boardID, args[1])
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/move", boardID, ticketID)
 	_, err = c.Post(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to move ticket: %w", err)
 	}
 
-	fmt.Printf("Moved ticket %s\n", args[1])
+	fmt.Printf("Moved ticket %s\n", ticketID)
 	return nil
 }
 
@@ -729,9 +1473,9 @@ func runTicketMove(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var ticketBulkMoveCmd = &cobra.Command{
-	Use:   "bulk-move <board>",
+	Use:   "bulk-move",
 	Short: "Move multiple tickets at once",
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.NoArgs,
 	RunE:  runTicketBulkMove,
 }
 
@@ -742,7 +1486,7 @@ func runTicketBulkMove(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
 	}
@@ -777,9 +1521,9 @@ func runTicketBulkMove(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 var ticketOrderCmd = &cobra.Command{
-	Use:   "order <board> <ticketId>",
+	Use:   "order [ticketKey]",
 	Short: "Reorder a ticket within a sprint or backlog",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runTicketOrder,
 }
 
@@ -790,9 +1534,27 @@ func runTicketOrder(cmd *cobra.Command, args []string) error {
 
 	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
 
-	boardID, err := cache.ResolveBoard(args[0], c)
+	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
 		return err
+	}
+
+	var ticketID string
+
+	if len(args) > 0 {
+		ticketID, err = resolveTicketByKey(boardID, args[0], c)
+		if err != nil {
+			return err
+		}
+	} else if isInteractive() {
+		var selectedBoardID string
+		selectedBoardID, ticketID, err = browseAndSelectTicket(boardID, c)
+		if err != nil {
+			return nil // user cancelled
+		}
+		boardID = selectedBoardID
+	} else {
+		return fmt.Errorf("ticket key is required in non-interactive mode")
 	}
 
 	order, _ := cmd.Flags().GetInt("order")
@@ -807,13 +1569,13 @@ func runTicketOrder(cmd *cobra.Command, args []string) error {
 		req.BacklogID = &v
 	}
 
-	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/order", boardID, args[1])
+	path := fmt.Sprintf("/kaizen/boards/%s/tickets/%s/order", boardID, ticketID)
 	_, err = c.Put(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to reorder ticket: %w", err)
 	}
 
-	fmt.Printf("Reordered ticket %s to position %d\n", args[1], order)
+	fmt.Printf("Reordered ticket %s to position %d\n", ticketID, order)
 	return nil
 }
 
@@ -831,8 +1593,6 @@ func init() {
 	ticketListCmd.Flags().String("assignee", "", "Filter by assignee UUIDs (comma-separated)")
 	ticketListCmd.Flags().String("label", "", "Filter by label UUIDs (comma-separated)")
 	ticketListCmd.Flags().String("search", "", "Search tickets by title")
-	ticketListCmd.Flags().String("sprint", "", "Filter by sprint ID")
-	ticketListCmd.Flags().String("backlog", "", "Filter by backlog ID")
 	ticketListCmd.Flags().Int("page", 0, "Page number")
 	ticketListCmd.Flags().Int("amount", 100, "Number of tickets per page")
 	ticketListCmd.Flags().String("sort-by", "", "Sort field")
@@ -855,35 +1615,35 @@ func init() {
 
 	// ticket get
 	ticketCmd.AddCommand(ticketGetCmd)
+	ticketGetCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// ticket create
 	ticketCmd.AddCommand(ticketCreateCmd)
 	ticketCreateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	ticketCreateCmd.Flags().String("title", "", "Ticket title (required)")
 	ticketCreateCmd.Flags().String("type", "", "Ticket type: TASK or INCIDENT (required)")
-	ticketCreateCmd.Flags().String("priority", "", "Priority: LOW, MEDIUM, HIGH, or CRITICAL (required)")
+	ticketCreateCmd.Flags().String("priority", "", "Priority: LOWEST, LOW, MEDIUM, HIGH, HIGHEST (task) or P1, P2, P3 (incident)")
 	ticketCreateCmd.Flags().String("status", "", "Status: TODO, IN_PROGRESS, IN_REVIEW, or DONE (required)")
 	ticketCreateCmd.Flags().String("description", "", "Ticket description")
 	ticketCreateCmd.Flags().String("assignee", "", "Assignee UUIDs (comma-separated)")
 	ticketCreateCmd.Flags().String("label", "", "Label UUIDs (comma-separated)")
 	ticketCreateCmd.Flags().String("project", "", "Project ID")
-	ticketCreateCmd.Flags().String("sprint", "", "Sprint ID")
+	ticketCreateCmd.Flags().String("sprint", "", "Sprint name (or 'sprint' for active/latest)")
 	ticketCreateCmd.Flags().String("backlog", "", "Backlog ID")
 	ticketCreateCmd.Flags().Int("story-points", 0, "Story points (weight)")
 	ticketCreateCmd.Flags().String("due-date", "", "Due date (YYYY-MM-DD)")
-	_ = ticketCreateCmd.MarkFlagRequired("title")
-	_ = ticketCreateCmd.MarkFlagRequired("type")
-	_ = ticketCreateCmd.MarkFlagRequired("priority")
-	_ = ticketCreateCmd.MarkFlagRequired("status")
+	// Note: title, type, priority, status are no longer marked as required.
+	// When not provided via flags and stdin is a terminal, interactive mode is used.
 
 	// ticket update
 	ticketCmd.AddCommand(ticketUpdateCmd)
+	ticketUpdateCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	ticketUpdateCmd.Flags().String("title", "", "New title")
 	ticketUpdateCmd.Flags().String("description", "", "New description")
 	ticketUpdateCmd.Flags().String("type", "", "New type: TASK or INCIDENT")
 	ticketUpdateCmd.Flags().String("status", "", "New status: TODO, IN_PROGRESS, IN_REVIEW, or DONE")
-	ticketUpdateCmd.Flags().String("priority", "", "New priority: LOW, MEDIUM, HIGH, or CRITICAL")
-	ticketUpdateCmd.Flags().String("sprint", "", "Sprint ID")
+	ticketUpdateCmd.Flags().String("priority", "", "New priority: LOWEST, LOW, MEDIUM, HIGH, HIGHEST (task) or P1, P2, P3 (incident)")
+	ticketUpdateCmd.Flags().String("sprint", "", "Sprint name (or 'sprint' for active/latest)")
 	ticketUpdateCmd.Flags().String("backlog", "", "Backlog ID")
 	ticketUpdateCmd.Flags().String("project", "", "Project ID")
 	ticketUpdateCmd.Flags().String("assignee", "", "Assignee UUIDs (comma-separated)")
@@ -894,24 +1654,29 @@ func init() {
 
 	// ticket delete
 	ticketCmd.AddCommand(ticketDeleteCmd)
+	ticketDeleteCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// ticket restore
 	ticketCmd.AddCommand(ticketRestoreCmd)
+	ticketRestoreCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 
 	// ticket move
 	ticketCmd.AddCommand(ticketMoveCmd)
+	ticketMoveCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	ticketMoveCmd.Flags().String("target-board", "", "Target board name or ID")
 	ticketMoveCmd.Flags().String("target-sprint", "", "Target sprint ID")
 	ticketMoveCmd.Flags().String("target-backlog", "", "Target backlog ID")
 
 	// ticket bulk-move
 	ticketCmd.AddCommand(ticketBulkMoveCmd)
+	ticketBulkMoveCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	ticketBulkMoveCmd.Flags().String("tickets", "", "Comma-separated ticket IDs (required)")
 	ticketBulkMoveCmd.Flags().String("target-sprint", "", "Target sprint ID")
 	ticketBulkMoveCmd.Flags().String("target-backlog", "", "Target backlog ID")
 
 	// ticket order
 	ticketCmd.AddCommand(ticketOrderCmd)
+	ticketOrderCmd.Flags().String("board", "", "Board name or ID (uses default if not set)")
 	ticketOrderCmd.Flags().Int("order", 0, "New display order (required)")
 	ticketOrderCmd.Flags().String("sprint", "", "Sprint ID context")
 	ticketOrderCmd.Flags().String("backlog", "", "Backlog ID context")
