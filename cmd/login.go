@@ -99,9 +99,11 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	user := userResp.Data
 
-	// Resolve org ID from user's default organization
-	orgID := cfgOrgID
-	if orgID == "" && user.DefaultOrganizationID != nil {
+	// Resolve org ID: prefer user's default org unless --org was explicitly passed
+	orgID := ""
+	if cmd.Flags().Changed("org") {
+		orgID = cfgOrgID
+	} else if user.DefaultOrganizationID != nil {
 		orgID = *user.DefaultOrganizationID
 	}
 
