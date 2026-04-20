@@ -48,7 +48,7 @@ func runTicketList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -311,7 +311,7 @@ func runTicketAll(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	params := url.Values{}
 	if v, _ := cmd.Flags().GetString("status"); v != "" {
@@ -403,7 +403,7 @@ func runTicketMine(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("user ID not stored. Please run 'kaizen login' again")
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	params := url.Values{}
 	params.Add("assigneeIds[]", creds.UserID)
@@ -483,7 +483,7 @@ func runTicketGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -583,7 +583,7 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -921,7 +921,7 @@ func runTicketUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -1320,7 +1320,7 @@ func runTicketDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -1382,7 +1382,7 @@ func runTicketRestore(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -1433,7 +1433,7 @@ func runTicketMove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -1499,7 +1499,7 @@ func runTicketBulkMove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -1547,7 +1547,7 @@ func runTicketOrder(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {

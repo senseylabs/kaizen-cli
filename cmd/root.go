@@ -15,20 +15,18 @@ import (
 )
 
 const (
-	prodAPIURL       = "https://api.sensey.io"
-	prodIssuer       = "https://keycloak.sensey.io/realms/sensey"
-	prodClientID     = "kaizen-cli"
-	devAPIURL        = "http://localhost:8080"
-	devIssuer        = "http://localhost:8086/realms/sensey"
-	devClientID      = "village-jwt-test-client"
-	devClientSecret  = "jwt-test-secret-12345"
+	prodAPIURL   = "https://api.sensey.io"
+	prodIssuer   = "https://keycloak.sensey.io/realms/sensey"
+	prodClientID = "kaizen-cli"
+	devAPIURL    = "http://localhost:8080"
+	devIssuer    = "http://localhost:8086/realms/sensey"
+	devClientID  = "village-jwt-test-client"
 )
 
 var (
 	cfgAPIURL       string
 	cfgIssuer       string
 	cfgClientID     string
-	cfgClientSecret string
 	cfgOrgID        string
 	cfgDefaultBoard string
 	cfgDevMode      bool
@@ -46,7 +44,7 @@ func SetVersion(v string) {
 var rootCmd = &cobra.Command{
 	Use:   "kaizen",
 	Short: "Kaizen CLI — project management from your terminal",
-	Long:  "A CLI tool for managing boards, tickets, sprints, and backlogs in Kaizen. Supports Keycloak password grant authentication.",
+	Long:  "A CLI tool for managing boards, tickets, sprints, and backlogs in Kaizen. Supports Keycloak Device Authorization Grant for interactive login and Personal Access Tokens for CI/CD.",
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		if cfgJSON {
 			return
@@ -117,9 +115,6 @@ func initConfig() {
 		if cfgClientID == "" {
 			cfgClientID = devClientID
 		}
-		if cfgClientSecret == "" {
-			cfgClientSecret = devClientSecret
-		}
 	}
 
 	// Resolve API URL: flag → env var → config file → stored creds → production default
@@ -148,12 +143,6 @@ func initConfig() {
 			cfgClientID = cfg.ClientID
 		} else {
 			cfgClientID = prodClientID
-		}
-	}
-
-	if cfgClientSecret == "" {
-		if cfg.ClientSecret != "" {
-			cfgClientSecret = cfg.ClientSecret
 		}
 	}
 

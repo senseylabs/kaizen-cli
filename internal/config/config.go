@@ -12,7 +12,6 @@ type Config struct {
 	APIURL       string `mapstructure:"api-url"`
 	Issuer       string `mapstructure:"issuer"`
 	ClientID     string `mapstructure:"client-id"`
-	ClientSecret string `mapstructure:"client-secret"`
 	OrgID        string `mapstructure:"org-id"`
 	DefaultBoard string `mapstructure:"default-board"`
 }
@@ -54,9 +53,6 @@ func Load() Config {
 				if cwdCfg.ClientID != "" {
 					cfg.ClientID = cwdCfg.ClientID
 				}
-				if cwdCfg.ClientSecret != "" {
-					cfg.ClientSecret = cwdCfg.ClientSecret
-				}
 				if cwdCfg.OrgID != "" {
 					cfg.OrgID = cwdCfg.OrgID
 				}
@@ -76,9 +72,6 @@ func Load() Config {
 	}
 	if v := os.Getenv("KAIZEN_CLIENT_ID"); v != "" {
 		cfg.ClientID = v
-	}
-	if v := os.Getenv("KAIZEN_CLIENT_SECRET"); v != "" {
-		cfg.ClientSecret = v
 	}
 	if v := os.Getenv("KAIZEN_ORG_ID"); v != "" {
 		cfg.OrgID = v
