@@ -68,7 +68,7 @@ func (d *DeviceFlow) DiscoverEndpoints() (*OIDCEndpoints, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch OIDC configuration from %s: %w", wellKnownURL, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OIDC configuration endpoint returned %d", resp.StatusCode)
@@ -100,7 +100,7 @@ func (d *DeviceFlow) RequestDeviceAuthorization(deviceAuthEndpoint string) (*Dev
 	if err != nil {
 		return nil, fmt.Errorf("device authorization request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -140,7 +140,7 @@ func (d *DeviceFlow) PollForToken(tokenEndpoint, deviceCode string, interval tim
 		}
 
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read token response: %w", err)
 		}
