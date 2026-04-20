@@ -4,18 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/senseylabs/kaizen-cli/internal/auth"
 	"github.com/senseylabs/kaizen-cli/internal/client"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Authenticate with Keycloak via password grant",
-	Long:  "Authenticates with Keycloak using username and password. Stores credentials securely for future use.",
+	Short: "Authenticate with Keycloak via Device Authorization Grant",
+	Long:  "Starts a Keycloak Device Authorization Grant flow. Opens your browser to complete authentication.",
 	RunE:  runLogin,
 }
 
@@ -34,40 +35,48 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var username, password string
+	// Build DeviceFlow
+	deviceFlow := auth.NewDeviceFlow(cfgIssuer, cfgClientID, "openid")
 
-	// Check env vars for non-interactive login
-	username = os.Getenv("KAIZEN_USERNAME")
-	password = os.Getenv("KAIZEN_PASSWORD")
-
-	// Prompt if not provided via env
-	if username == "" {
-		fmt.Print("Username: ")
-		if _, err := fmt.Scanln(&username); err != nil {
-			return fmt.Errorf("failed to read username: %w", err)
-		}
-	}
-
-	if password == "" {
-		fmt.Print("Password: ")
-		pwBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
-		}
-		password = string(pwBytes)
-		fmt.Println() // newline after masked input
-	}
-
-	// Perform password grant
-	fmt.Println("Authenticating...")
-	tokenResp, err := auth.PasswordGrant(cfgIssuer, cfgClientID, cfgClientSecret, username, password)
+	// Step 1: Discover OIDC endpoints
+	fmt.Println("Discovering Keycloak endpoints...")
+	endpoints, err := deviceFlow.DiscoverEndpoints()
 	if err != nil {
-		return fmt.Errorf("login failed: %w", err)
+		return fmt.Errorf("failed to discover OIDC endpoints: %w", err)
+	}
+
+	// Step 2: Request device authorization
+	deviceResp, err := deviceFlow.RequestDeviceAuthorization(endpoints.DeviceAuthorizationEndpoint)
+	if err != nil {
+		return fmt.Errorf("failed to start device authorization: %w", err)
+	}
+
+	// Step 3: Display instructions and try to open browser
+	fmt.Println()
+	fmt.Printf("Open this URL in your browser: %s\n", deviceResp.VerificationURIComplete)
+	fmt.Printf("Enter code: %s\n", deviceResp.UserCode)
+	fmt.Println()
+
+	if deviceResp.VerificationURIComplete != "" {
+		openBrowser(deviceResp.VerificationURIComplete)
+	}
+
+	// Step 4: Poll for token
+	fmt.Println("Waiting for authentication...")
+	interval := time.Duration(deviceResp.Interval) * time.Second
+	if interval == 0 {
+		interval = 5 * time.Second
+	}
+	expiresAt := time.Now().Add(time.Duration(deviceResp.ExpiresIn) * time.Second)
+
+	tokenResp, err := deviceFlow.PollForToken(endpoints.TokenEndpoint, deviceResp.DeviceCode, interval, expiresAt)
+	if err != nil {
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	fmt.Println("Authentication successful!")
 
-	// Call GET /users/me to get user info
+	// Step 5: Call GET /users/me to get user info
 	tempClient := client.NewKaizenClientWithToken(cfgAPIURL, cfgOrgID, tokenResp.AccessToken)
 
 	userBody, err := tempClient.Get("/users/me")
@@ -96,7 +105,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 		orgID = *user.DefaultOrganizationID
 	}
 
-	// Store credentials
+	// Step 6: Store credentials
 	store := auth.NewCredentialStore()
 	creds := auth.Credentials{
 		AccessToken:  tokenResp.AccessToken,
@@ -126,4 +135,21 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Could not open browser automatically. Please open the URL manually.\n")
+	}
 }

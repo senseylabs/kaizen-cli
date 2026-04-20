@@ -122,7 +122,7 @@ func runBoardList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 	refresh, _ := cmd.Flags().GetBool("refresh")
 
 	if refresh {
@@ -187,7 +187,7 @@ func runBoardGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	// First fetch boards list and filter
 	body, err := c.Get("/kaizen/boards?includeChildren=true&amount=100")
@@ -238,7 +238,7 @@ func runBoardCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--name and --key are required")
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	payload := client.BoardCreateRequest{
 		Name:        name,
@@ -273,7 +273,7 @@ func runBoardUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -315,7 +315,7 @@ func runBoardDelete(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -338,7 +338,7 @@ func runBoardRestore(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -366,7 +366,7 @@ func runBoardChildrenAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--child-ids is required")
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -394,7 +394,7 @@ func runBoardRelated(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := cache.ResolveBoard(args[0], c)
 	if err != nil {
@@ -430,7 +430,7 @@ func runBoardSetDefault(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	var boardName string
 

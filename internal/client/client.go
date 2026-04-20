@@ -19,20 +19,18 @@ type TokenFunc func() (string, error)
 
 // KaizenClient handles HTTP communication with the Kaizen API.
 type KaizenClient struct {
-	BaseURL      string
-	OrgID        string
-	httpClient   *http.Client
-	tokenFunc    TokenFunc
-	clientSecret string
-	debug        bool
+	BaseURL    string
+	OrgID      string
+	httpClient *http.Client
+	tokenFunc  TokenFunc
+	debug      bool
 }
 
 // NewKaizenClient creates a new client with a token resolver function.
-func NewKaizenClient(baseURL, orgID, clientSecret string, tokenFunc TokenFunc, debug bool) *KaizenClient {
+func NewKaizenClient(baseURL, orgID string, tokenFunc TokenFunc, debug bool) *KaizenClient {
 	return &KaizenClient{
-		BaseURL:      baseURL,
-		OrgID:        orgID,
-		clientSecret: clientSecret,
+		BaseURL: baseURL,
+		OrgID:   orgID,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -176,7 +174,7 @@ func (c *KaizenClient) tryRefreshToken() error {
 		return fmt.Errorf("no issuer URL in stored credentials")
 	}
 
-	tokenResp, err := auth.RefreshToken(issuer, creds.ClientID, c.clientSecret, creds.RefreshToken)
+	tokenResp, err := auth.RefreshTokenDirect(issuer, creds.ClientID, creds.RefreshToken)
 	if err != nil {
 		return err
 	}

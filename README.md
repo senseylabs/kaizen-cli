@@ -36,7 +36,7 @@ make build
 kaizen login
 ```
 
-You'll be prompted for your Keycloak username and password. Tokens are stored securely in the macOS Keychain (or `~/.kaizen/credentials` on Linux). Your password is never stored.
+This opens your browser for Keycloak authentication. Log in with your existing session — no credentials are typed in the terminal. Tokens are stored securely in the macOS Keychain (or `~/.kaizen/credentials` on Linux).
 
 ### 2. Set a default board
 
@@ -184,12 +184,15 @@ Interactive mode is **automatically disabled** when:
 kaizen login
 ```
 
+Opens your browser to authenticate via the Keycloak Device Authorization Grant (RFC 8628). If you're already logged into Keycloak, authentication is seamless.
+
 ### Environment variables (CI / agents)
 
 | Variable | Description |
 |----------|-------------|
 | `KAIZEN_TOKEN` | Pre-obtained access token — used directly, no login needed |
-| `KAIZEN_USERNAME` + `KAIZEN_PASSWORD` | Used by `kaizen login` for non-interactive authentication |
+
+For CI/CD pipelines, set `KAIZEN_TOKEN` to a service account token or Personal Access Token. No interactive login is required.
 
 ### Logout
 
@@ -316,11 +319,9 @@ Resolved in this order (highest priority first):
 | `KAIZEN_API_URL` | API base URL |
 | `KAIZEN_KEYCLOAK_ISSUER` | Keycloak issuer URL |
 | `KAIZEN_CLIENT_ID` | Keycloak client ID |
-| `KAIZEN_CLIENT_SECRET` | Client secret |
 | `KAIZEN_ORG_ID` | Organization ID |
 | `KAIZEN_DEFAULT_BOARD` | Default board name |
-| `KAIZEN_TOKEN` | Pre-obtained access token |
-| `KAIZEN_USERNAME` / `KAIZEN_PASSWORD` | Non-interactive login |
+| `KAIZEN_TOKEN` | Pre-obtained access token (CI/CD) |
 
 ### Exit codes
 

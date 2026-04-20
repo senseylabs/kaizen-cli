@@ -44,7 +44,7 @@ func runBacklogGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
@@ -88,7 +88,7 @@ func runBacklogAddTicket(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, cfgClientSecret, resolveToken, cfgDebug)
+	c := client.NewKaizenClient(cfgAPIURL, cfgOrgID, resolveToken, cfgDebug)
 
 	boardID, err := resolveDefaultBoard(cmd, c)
 	if err != nil {
