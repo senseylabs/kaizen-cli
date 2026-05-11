@@ -16,7 +16,7 @@ import (
 
 const (
 	prodAPIURL   = "https://api.sensey.io"
-	prodIssuer   = "https://keycloak.sensey.io/realms/sensey"
+	prodIssuer   = "https://auth.sensey.io/realms/sensey"
 	prodClientID = "kaizen-cli"
 	devAPIURL    = "http://localhost:8080"
 	devIssuer    = "http://localhost:8086/realms/sensey"
