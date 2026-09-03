@@ -62,6 +62,8 @@ kaizen ticket update
 
 # Or use flags for quick operations
 kaizen ticket create --title "Fix login bug" --type TASK --priority HIGH --status TODO
+kaizen ticket create --title "Crash on save" --type INCIDENT --priority P2 --status TODO \
+  --attach ./screenshot.png --attach ./server.log
 kaizen ticket update SEN-42 --status IN_PROGRESS
 ```
 
@@ -132,8 +134,41 @@ Select (or 'd' when done): 1
   Selected: Emir Akyuz
 Select (or 'd' when done, 'r' to remove last): d
 
+Attachments? (y/n): y
+File path (empty to finish): ./screenshot.png
+File path (empty to finish): ~/logs/server.log
+File path (empty to finish):
+
 Created ticket SEN-44: Fix the login page crash
+Attached 2 file(s): screenshot.png, server.log
 ```
+
+### Ticket attachments
+
+Attach local files to a ticket at creation time with a repeatable `--attach` (`-a`) flag,
+or by answering the **Attachments** prompt in the interactive flow:
+
+```bash
+kaizen ticket create --title "Crash on save" --type INCIDENT --priority P2 --status TODO \
+  -a ./screenshot.png -a ~/logs/server.log
+```
+
+Every path is validated **before** the ticket is created — it must exist, be a readable
+regular file, be non-empty, and stay within the server's **12 MB** limit (which applies both
+per file and to the combined size of one upload). A bad path fails the command without
+creating a ticket.
+
+Attachments are uploaded after the ticket exists, because the upload needs the new ticket's
+id. If the ticket is created but the upload fails, the CLI says so explicitly, names the
+files that were not attached, prints the ticket key so nothing looks lost, and exits
+non-zero. Under `--json` that partial failure is still a single valid JSON document, with
+the details under `attachmentError`.
+
+The server rejects two files with identical content under the same entity type — the
+duplicate check is scoped to the type, not the ticket, so a byte-identical file already
+attached to *any* ticket is refused. The CLI pre-checks each file against
+`POST /storage/attachments/exists` before creating the ticket, so this is reported up front
+with the offending filename and no ticket is created.
 
 ### Ticket update — browse, select, and modify
 
@@ -167,6 +202,7 @@ All commands support `--flags` and `--json` for non-interactive use:
 
 ```bash
 kaizen ticket create --title "Bug fix" --type TASK --priority HIGH --status TODO --json
+kaizen ticket create --title "Bug fix" --type TASK --priority HIGH --status TODO --attach ./trace.txt --json
 kaizen ticket update SEN-42 --status IN_PROGRESS --json
 kaizen sprint start "Sprint 3" --json
 kaizen comment add SEN-42 --content "Fixed in PR #123" --json
@@ -210,7 +246,7 @@ kaizen logout
 | `kaizen ticket all` | List tickets across all boards |
 | `kaizen ticket mine` | List tickets assigned to you |
 | `kaizen ticket get [ticketKey]` | Get ticket details — browse or specify key |
-| `kaizen ticket create` | Create a ticket — interactive or with flags |
+| `kaizen ticket create` | Create a ticket — interactive or with flags; `--attach`/`-a` uploads local files |
 | `kaizen ticket update [ticketKey]` | Update a ticket — browse or specify key |
 | `kaizen ticket delete [ticketKey]` | Delete a ticket (with confirmation) |
 | `kaizen ticket move [ticketKey]` | Move a ticket between boards/sprints |
@@ -228,6 +264,12 @@ Ticket keys like `SEN-42` are resolved automatically — no UUIDs needed.
 | `--priority` (TASK) | `LOWEST`, `LOW`, `MEDIUM`, `HIGH`, `HIGHEST` |
 | `--priority` (INCIDENT) | `P1`, `P2`, `P3` |
 | `--status` | `TODO`, `IN_PROGRESS`, `IN_REVIEW`, `DONE` |
+
+**`kaizen ticket create` file flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--attach`, `-a` | Local file to attach; repeat for multiple files. Max 12 MB per file and per upload |
 
 ### Sprints
 

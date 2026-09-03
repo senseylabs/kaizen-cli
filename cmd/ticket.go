@@ -3,9 +3,11 @@ package cmd
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -575,11 +577,26 @@ func runTicketGet(cmd *cobra.Command, args []string) error {
 var ticketCreateCmd = &cobra.Command{
 	Use:   "create",
 	Short: "Create a new ticket",
-	RunE:  runTicketCreate,
+	Example: `  # Interactive
+  kaizen ticket create
+
+  # With flags, attaching two local files
+  kaizen ticket create --title "Login crash" --type TASK --priority HIGH --status TODO \
+    --attach ./screenshot.png --attach ./server.log`,
+	RunE: runTicketCreate,
 }
 
 func runTicketCreate(cmd *cobra.Command, args []string) error {
 	if err := requireAuth(); err != nil {
+		return err
+	}
+
+	// Attachments are validated first — before any network call and well before
+	// the ticket POST — so a bad path fails fast and never leaves an orphaned
+	// ticket behind.
+	rawAttachments, _ := cmd.Flags().GetStringArray("attach")
+	attachPaths, err := collectAttachmentPaths(rawAttachments)
+	if err != nil {
 		return err
 	}
 
@@ -594,7 +611,7 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 
 	// If title is not provided and we're in an interactive terminal, enter interactive mode
 	if title == "" && isInteractive() && term.IsTerminal(int(os.Stdout.Fd())) {
-		return runTicketCreateInteractive(cmd, boardID, c)
+		return runTicketCreateInteractive(cmd, boardID, attachPaths, c)
 	}
 
 	// Non-interactive: require flags
@@ -663,18 +680,34 @@ func runTicketCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	return submitTicketCreate(boardID, req, c)
+	return submitTicketCreate(cmd, boardID, req, attachPaths, c)
 }
 
-// submitTicketCreate sends the create request and prints the result.
-func submitTicketCreate(boardID string, req client.TicketCreateRequest, c *client.KaizenClient) error {
+// submitTicketCreate sends the create request, uploads any attachments, and
+// prints the result.
+//
+// Ordering is deliberate: the ticket must exist before its attachments can be
+// uploaded, because the storage API needs the new ticket's id as entityId. That
+// means the upload can fail after the ticket is already committed, so the
+// partial-failure path below reports the ticket key explicitly and still exits
+// non-zero rather than swallowing the upload error.
+func submitTicketCreate(cmd *cobra.Command, boardID string, req client.TicketCreateRequest, attachPaths []string, c *client.KaizenClient) error {
+	// Last gate before the irreversible step. Sited here rather than alongside
+	// the local --attach validation because it also has to cover the paths the
+	// interactive flow collects, which are only known at this point.
+	if err := preflightAttachments(attachPaths, c); err != nil {
+		return err
+	}
+
 	path := fmt.Sprintf("/kaizen/boards/%s/tickets", boardID)
 	body, err := c.Post(path, req)
 	if err != nil {
 		return fmt.Errorf("failed to create ticket: %w", err)
 	}
 
-	if cfgJSON {
+	// Without attachments the raw server body is still echoed verbatim, so
+	// existing --json consumers see byte-identical output.
+	if len(attachPaths) == 0 && cfgJSON {
 		fmt.Println(string(body))
 		return nil
 	}
@@ -684,12 +717,229 @@ func submitTicketCreate(boardID string, req client.TicketCreateRequest, c *clien
 		return fmt.Errorf("failed to parse ticket response: %w", err)
 	}
 
-	fmt.Printf("\nCreated ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
+	if len(attachPaths) == 0 {
+		fmt.Printf("\nCreated ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
+		return nil
+	}
+
+	attachments, uploadErr := c.UploadAttachments(client.StorageEntityTypeTicket, resp.Data.ID, attachPaths)
+
+	if cfgJSON {
+		if printErr := printTicketCreateJSON(body, attachments, attachPaths, uploadErr); printErr != nil {
+			// Join rather than return printErr alone: when the upload failed AND
+			// rendering its JSON failed, uploadErr is the cause the user actually
+			// needs and dropping it here would hide it completely.
+			return errors.Join(uploadErr, printErr)
+		}
+	} else {
+		fmt.Printf("\nCreated ticket %s: %s\n", resp.Data.Key, resp.Data.Title)
+		if uploadErr == nil {
+			fmt.Printf("Attached %d file(s): %s\n", len(attachments), strings.Join(attachmentFileNames(attachments), ", "))
+		}
+	}
+
+	if uploadErr != nil {
+		// The ticket is committed and only the upload failed. Spell that out on
+		// stderr (stdout may be machine-read JSON) so the user does not assume
+		// the whole command rolled back, then return the error to keep the exit
+		// code non-zero. SilenceUsage stops cobra dumping the help text over a
+		// message that is not a usage problem.
+		cmd.SilenceUsage = true
+		_, _ = fmt.Fprintf(os.Stderr, "\nTicket %s WAS created and is not lost — only the attachment upload failed.\n", resp.Data.Key)
+		_, _ = fmt.Fprintf(os.Stderr, "Not attached (%d): %s\n", len(attachPaths), strings.Join(attachmentBaseNames(attachPaths), ", "))
+		return fmt.Errorf("ticket %s created, but uploading its attachments failed: %w", resp.Data.Key, uploadErr)
+	}
+
 	return nil
 }
 
+// printTicketCreateJSON re-emits the server envelope with the attachment
+// outcome merged in. The original keys are copied as raw JSON so the ticket
+// payload survives untouched, and the failure path still produces a single
+// valid JSON document on stdout.
+func printTicketCreateJSON(body []byte, attachments []client.Attachment, attachPaths []string, uploadErr error) error {
+	envelope := map[string]json.RawMessage{}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return fmt.Errorf("failed to parse ticket response: %w", err)
+	}
+
+	uploaded := attachments
+	if uploaded == nil {
+		uploaded = []client.Attachment{}
+	}
+	uploadedJSON, err := json.Marshal(uploaded)
+	if err != nil {
+		return fmt.Errorf("failed to encode attachments for JSON output: %w", err)
+	}
+	envelope["attachments"] = uploadedJSON
+
+	if uploadErr != nil {
+		failureJSON, marshalErr := json.Marshal(map[string]interface{}{
+			"message": uploadErr.Error(),
+			"files":   attachmentBaseNames(attachPaths),
+		})
+		if marshalErr != nil {
+			return fmt.Errorf("failed to encode attachment error for JSON output: %w", marshalErr)
+		}
+		envelope["attachmentError"] = failureJSON
+	}
+
+	out, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("failed to encode ticket response: %w", err)
+	}
+
+	fmt.Println(string(out))
+	return nil
+}
+
+// attachmentFileNames lists the server-recorded names of uploaded attachments.
+func attachmentFileNames(attachments []client.Attachment) []string {
+	names := make([]string, len(attachments))
+	for i, a := range attachments {
+		names[i] = a.FileName
+	}
+	return names
+}
+
+// attachmentBaseNames lists the file names behind the supplied local paths.
+func attachmentBaseNames(paths []string) []string {
+	names := make([]string, len(paths))
+	for i, path := range paths {
+		names[i] = filepath.Base(path)
+	}
+	return names
+}
+
+// collectAttachmentPaths normalises raw --attach values (trimming, expanding a
+// leading ~) and validates every one of them against the storage API's limits.
+// Returning an error here aborts before the ticket is created.
+func collectAttachmentPaths(raw []string) ([]string, error) {
+	paths := make([]string, 0, len(raw))
+	for _, value := range raw {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		expanded, err := expandHomePath(trimmed)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, expanded)
+	}
+
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	if err := client.ValidateAttachmentPaths(paths); err != nil {
+		return nil, err
+	}
+
+	return paths, nil
+}
+
+// preflightAttachments asks the server, per file, whether identical content is
+// already stored, and refuses the whole command if so.
+//
+// The server's duplicate predicate is scoped to the entity TYPE, so a file
+// byte-identical to one attached to any other ticket is rejected. That
+// rejection would otherwise arrive from the upload, which by necessity runs
+// after the ticket has been created -- leaving an orphaned ticket behind for a
+// problem that was knowable up front. Naming the offending file here lets the
+// user swap it out and re-run cleanly.
+//
+// The check fails OPEN, but only for errors that come from the SERVER. An
+// unknown answer -- a transient 500, an exhausted 429 retry, or a deployment
+// predating /storage/attachments/exists -- must not block ticket creation: this
+// is a public Homebrew binary that can be pointed at any backend via --api-url
+// or stored credentials, so turning unknown into a hard block would make
+// --attach unusable against backends whose upload endpoint works fine.
+// Deferring to the upload costs nothing there, since the upload is the
+// authority on duplicates either way and submitTicketCreate already reports a
+// post-create upload failure without losing the ticket.
+//
+// A LOCAL failure is the opposite case and still fails closed. Building the
+// request body reads the file, so ErrAttachmentUnreadable means the file went
+// away or lost its permissions since validation (a TOCTOU window: unmount,
+// chmod, delete). That is a certainty, not an unknown -- the upload would fail
+// on the very same file moments later, stranding the ticket that this check
+// exists to protect. Rule 10 is satisfied on both branches: the error is either
+// returned or surfaced on stderr, never swallowed.
+func preflightAttachments(paths []string, c *client.KaizenClient) error {
+	for _, path := range paths {
+		exists, err := c.CheckAttachmentExists(client.StorageEntityTypeTicket, path)
+		if err != nil {
+			if errors.Is(err, client.ErrAttachmentUnreadable) {
+				return fmt.Errorf("attachment %q can no longer be read: %w", filepath.Base(path), err)
+			}
+			_, _ = fmt.Fprintf(os.Stderr, "warning: could not pre-check attachment %q for duplicates (%v); continuing\n",
+				filepath.Base(path), err)
+			continue
+		}
+		if exists {
+			return fmt.Errorf("attachment %q has the same content as a file already attached to a ticket; the server rejects duplicate content across all tickets, so this upload would fail", filepath.Base(path))
+		}
+	}
+	return nil
+}
+
+// expandHomePath resolves a leading ~ so paths typed at an interactive prompt
+// (where no shell expansion happens) behave like paths passed on the command line.
+func expandHomePath(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not resolve the home directory for %q: %w", path, err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
+}
+
+// promptAttachments collects optional attachment paths, one per line, until the
+// user submits an empty line. Each entry is validated against the already
+// accepted ones so batch-level limits (total size, duplicates) apply too; an
+// invalid entry is reported and re-prompted instead of aborting the flow.
+func promptAttachments() ([]string, error) {
+	want, err := promptYesNo("Attachments")
+	if err != nil {
+		return nil, err
+	}
+	if !want {
+		return nil, nil
+	}
+
+	var paths []string
+	for {
+		value, promptErr := promptText("File path (empty to finish)")
+		if promptErr != nil {
+			return nil, promptErr
+		}
+		if strings.TrimSpace(value) == "" {
+			return paths, nil
+		}
+
+		candidate := make([]string, 0, len(paths)+1)
+		candidate = append(candidate, paths...)
+		candidate = append(candidate, value)
+
+		accepted, validateErr := collectAttachmentPaths(candidate)
+		if validateErr != nil {
+			_, _ = fmt.Fprintf(os.Stdout, "  %v\n", validateErr)
+			continue
+		}
+		paths = accepted
+	}
+}
+
 // runTicketCreateInteractive prompts the user for all ticket fields interactively.
-func runTicketCreateInteractive(_ *cobra.Command, boardID string, c *client.KaizenClient) error {
+// attachPaths carries any already-validated --attach values so flags and prompts
+// can be combined in one invocation.
+func runTicketCreateInteractive(cmd *cobra.Command, boardID string, attachPaths []string, c *client.KaizenClient) error {
 	fmt.Println()
 
 	// Title (required)
@@ -902,7 +1152,17 @@ func runTicketCreateInteractive(_ *cobra.Command, boardID string, c *client.Kaiz
 		}
 	}
 
-	return submitTicketCreate(boardID, req, c)
+	// Attachments (optional). Skipped entirely when --attach already supplied
+	// files, so the flag and the prompt never fight over the same list.
+	if len(attachPaths) == 0 {
+		prompted, attachErr := promptAttachments()
+		if attachErr != nil {
+			return attachErr
+		}
+		attachPaths = prompted
+	}
+
+	return submitTicketCreate(cmd, boardID, req, attachPaths, c)
 }
 
 // ---------------------------------------------------------------------------
@@ -1647,6 +1907,7 @@ func init() {
 	ticketCreateCmd.Flags().String("backlog", "", "Backlog ID")
 	ticketCreateCmd.Flags().Int("story-points", 0, "Story points (weight)")
 	ticketCreateCmd.Flags().String("due-date", "", "Due date (YYYY-MM-DD)")
+	ticketCreateCmd.Flags().StringArrayP("attach", "a", nil, "Attach a local file to the new ticket; repeat for multiple files (max 12MB per file and per upload)")
 	// Note: title, type, priority, status are no longer marked as required.
 	// When not provided via flags and stdin is a terminal, interactive mode is used.
 
